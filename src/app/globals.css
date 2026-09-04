@@ -1,0 +1,137 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-geist-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* C205 — restrained university palette: light ground, navy ink, blue accent. */
+  --background: #f6f8fc;
+  --foreground: #0f1b2d;
+  --card: #ffffff;
+  --card-foreground: #0f1b2d;
+  --popover: #ffffff;
+  --popover-foreground: #0f1b2d;
+  --primary: #2354e6;
+  --primary-foreground: #ffffff;
+  --secondary: #eef2fa;
+  --secondary-foreground: #14203a;
+  --muted: #eef1f7;
+  --muted-foreground: #5b6b84;
+  --accent: #e8effe;
+  --accent-foreground: #163a8f;
+  --destructive: #dc2626;
+  --border: #e3e8f1;
+  --input: #dde3ee;
+  --ring: #2354e6;
+  --chart-1: #2354e6;
+  --chart-2: #14b8a6;
+  --chart-3: #f59e0b;
+  --chart-4: #8b5cf6;
+  --chart-5: #ec4899;
+  --radius: 0.75rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #14203a;
+  --sidebar-primary: #2354e6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eef3ff;
+  --sidebar-accent-foreground: #1d43c4;
+  --sidebar-border: #e8ebf2;
+  --sidebar-ring: #2354e6;
+}
+
+.dark {
+  --background: #0a1120;
+  --foreground: #e8edf7;
+  --card: #101a2e;
+  --card-foreground: #e8edf7;
+  --popover: #101a2e;
+  --popover-foreground: #e8edf7;
+  --primary: #5b85f5;
+  --primary-foreground: #0a1120;
+  --secondary: #16233c;
+  --secondary-foreground: #e8edf7;
+  --muted: #16233c;
+  --muted-foreground: #8fa0bd;
+  --accent: #18294a;
+  --accent-foreground: #9db6f7;
+  --destructive: #f87171;
+  --border: color-mix(in oklab, #e8edf7 12%, transparent);
+  --input: color-mix(in oklab, #e8edf7 16%, transparent);
+  --ring: #5b85f5;
+  --chart-1: #5b85f5;
+  --chart-2: #2dd4bf;
+  --chart-3: #fbbf24;
+  --chart-4: #a78bfa;
+  --chart-5: #f472b6;
+  --sidebar: #0d1626;
+  --sidebar-foreground: #e8edf7;
+  --sidebar-primary: #5b85f5;
+  --sidebar-primary-foreground: #0a1120;
+  --sidebar-accent: #16233c;
+  --sidebar-accent-foreground: #9db6f7;
+  --sidebar-border: color-mix(in oklab, #e8edf7 10%, transparent);
+  --sidebar-ring: #5b85f5;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
