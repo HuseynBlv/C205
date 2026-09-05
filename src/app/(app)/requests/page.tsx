@@ -65,7 +65,7 @@ export default function MyRequestsPage() {
                     participants
                   </p>
                   {request.status === "REJECTED" && request.rejectionReason ? (
-                    <p className="mt-1.5 text-sm text-rose-700">
+                    <p className="mt-1.5 text-sm text-[#8a3c37]">
                       Reason: {request.rejectionReason}
                     </p>
                   ) : null}

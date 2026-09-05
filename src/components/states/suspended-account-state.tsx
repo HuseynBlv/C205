@@ -20,7 +20,7 @@ const copy: Record<
     description:
       "An administrator reviewed your account and did not authorize reservation access. Contact USG for details.",
     icon: ShieldX,
-    tone: "bg-rose-50 text-rose-600",
+    tone: "bg-[#f8ebe9] text-[#8a3c37]",
   },
   REMOVED: {
     title: "Your account access has been removed",

@@ -121,13 +121,44 @@ cosmetic; nothing here should be trusted as security.
 
 ## Design tokens (`src/app/globals.css`)
 
-Light ground (`#f6f8fc`), navy ink (`#0f1b2d`), a single blue accent
-(`#2354e6`) used for primary actions/active nav/links, and low-contrast
-slate borders (`#e3e8f1`). Status colors (amber/emerald/rose/slate) are
-applied directly via Tailwind utility classes in the badge components,
-kept separate from the brand palette. A dark variant exists via the same
-CSS-variable mechanism but has no toggle UI yet — not a priority for this
-step.
+The "Make Space" visual system: warm off-white ground (`#faf7f1`), dark
+navy ink (`#141c30`), a single cobalt accent (`#2b4de0`), and status colors
+— amber (pending), emerald (approved), muted red (rejected/cancelled) —
+defined as shared `--status-*` custom properties (`globals.css`) rather than
+only inline Tailwind palette classes, so the calendar, badges, and the hero
+capsule can all reference the same colors. An unrelated `.dark` variant
+still exists via the same CSS-variable mechanism but has no toggle UI —
+not a priority for this step.
+
+A second, separately-scoped set of tokens (`.hero-scene-vars` /
+`.hero-scene`) defines the cinematic marketing hero's midnight palette
+(deep charcoal, blue/amber glow). This is deliberately **not** the app's
+dark mode — it's a fixed atmospheric backdrop for the landing page only;
+the authenticated application is always the light workspace.
+
+### The room capsule (`src/components/marketing/room-capsule.tsx`)
+
+The one visual spectacle in the product: an SVG "doorway" frame holding a
+grid of glowing time blocks (available / pending / reserved), reused at
+three scales — full detail in the hero, simplified as the recurring
+`BrandMark` spatial-outline icon, and echoed in the calendar preview's
+color language. `src/components/marketing/hero-transition.tsx` is the
+signature moment: a scroll-pinned section that fades/scales the capsule
+into a real calendar-shaped preview as the visitor scrolls past the hero.
+It's pure CSS transform/opacity driven by a rAF-throttled scroll listener
+(no animation library), and does nothing (renders the two states
+statically stacked, no pin, no listener) under `prefers-reduced-motion`.
+
+### Booking motion
+
+`src/components/booking/time-slot-picker.tsx` replaces the old plain
+dropdown with illuminated "window" buttons. `use-slot-travel-glow.tsx`
+animates a small glow from the clicked slot to the reservation summary
+panel on `requests/new`, and also no-ops under reduced motion. The admin
+reservations screen (`admin/reservations/page.tsx`) is a client component
+with local optimistic Approve/Reject state (glow-ring transition, item
+moves from "Pending decision" to "Decision history") — this is UI motion
+only, not persistence; see the fixtures note below.
 
 ## Time handling
 
@@ -147,3 +178,12 @@ FullCalendar wiring, and the real mobile time-list interaction are explicit
 follow-up work. Notifications and the email outbox don't exist yet. None of
 this is faked in the UI; screens that would depend on it show a
 `PreviewNotice` or an honest empty state instead.
+
+The admin Approve/Reject buttons on `admin/reservations` are now clickable
+(previously `disabled`) so the decision motion and card layout can be
+previewed, but the resulting status change is local component state only —
+a reload reverts it, nothing is written anywhere, and the page's
+`PreviewNotice` says so explicitly. The illuminated `TimeSlotPicker` on
+`requests/new` is a nicer-looking input, not a real availability check —
+it doesn't yet know which hours are actually open or already reserved;
+that lands with the booking engine step alongside the 72-hour rule.

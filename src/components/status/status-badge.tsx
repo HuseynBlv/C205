@@ -27,12 +27,12 @@ const reservationStatusConfig: Record<
   },
   REJECTED: {
     label: "Rejected",
-    className: "bg-rose-50 text-rose-800 border-rose-200",
+    className: "bg-[#f8ebe9] text-[#8a3c37] border-[#eccbc7]",
     icon: XCircle,
   },
   CANCELLED: {
     label: "Cancelled",
-    className: "bg-slate-100 text-slate-600 border-slate-200",
+    className: "bg-[#f3efea] text-[#77706a] border-[#e4ddd2]",
     icon: CircleSlash,
   },
 };
@@ -53,7 +53,7 @@ const accountStatusConfig: Record<
   },
   REJECTED: {
     label: "Rejected",
-    className: "bg-rose-50 text-rose-800 border-rose-200",
+    className: "bg-[#f8ebe9] text-[#8a3c37] border-[#eccbc7]",
     icon: UserX,
   },
   SUSPENDED: {
