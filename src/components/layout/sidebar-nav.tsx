@@ -38,7 +38,7 @@ export function NavList({
             <Icon
               className={cn(
                 "size-4.5 shrink-0",
-                isActive ? "text-sidebar-accent-foreground" : "text-muted-foreground group-hover:text-sidebar-accent-foreground",
+                isActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/60 group-hover:text-sidebar-accent-foreground",
               )}
               aria-hidden="true"
             />
@@ -53,7 +53,7 @@ export function NavList({
 export function SidebarNavGroup({ title, items }: { title: string; items: NavItem[] }) {
   return (
     <div className="space-y-2">
-      <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+      <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
         {title}
       </p>
       <NavList items={items} />

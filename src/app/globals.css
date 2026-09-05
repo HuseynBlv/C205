@@ -7,10 +7,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-geist-sans);
-  --font-serif: var(--font-fraunces);
+  --font-heading: var(--font-inter);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -50,104 +49,87 @@
 }
 
 :root {
-  /* C205 — "Make Space": warm off-white ground, navy ink, one cobalt accent. */
-  --background: #faf7f1;
-  --foreground: #141c30;
+  /* C205, styled as part of usg.az: deep navy ink, one warm orange accent,
+     plain white ground. Institutional/corporate, not cinematic. */
+  --background: #ffffff;
+  --foreground: #16262c;
   --card: #ffffff;
-  --card-foreground: #141c30;
+  --card-foreground: #16262c;
   --popover: #ffffff;
-  --popover-foreground: #141c30;
-  --primary: #2b4de0;
+  --popover-foreground: #16262c;
+  --primary: #df8130;
   --primary-foreground: #ffffff;
-  --secondary: #f1ece0;
-  --secondary-foreground: #24304a;
-  --muted: #f2ede2;
-  --muted-foreground: #656f85;
-  --accent: #e9eefd;
-  --accent-foreground: #1d3fc7;
-  --destructive: #c1443d;
-  --border: #e7e0d1;
-  --input: #ddd4c1;
-  --ring: #2b4de0;
-  --chart-1: #2b4de0;
-  --chart-2: #14b8a6;
-  --chart-3: #d98a2b;
-  --chart-4: #8b5cf6;
-  --chart-5: #ec4899;
-  --radius: 0.85rem;
-  --sidebar: #ffffff;
-  --sidebar-foreground: #24304a;
-  --sidebar-primary: #2b4de0;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #eef2ff;
-  --sidebar-accent-foreground: #1d3fc7;
-  --sidebar-border: #ece5d6;
-  --sidebar-ring: #2b4de0;
+  --secondary: #eef2f3;
+  --secondary-foreground: #172e35;
+  --muted: #eef2f3;
+  --muted-foreground: #5b6b71;
+  --accent: #e7eef0;
+  --accent-foreground: #17414f;
+  --destructive: #b3261e;
+  --border: #e1e6e7;
+  --input: #d3dadc;
+  --ring: #df8130;
+  --chart-1: #df8130;
+  --chart-2: #17414f;
+  --chart-3: #3f5c68;
+  --chart-4: #158f63;
+  --chart-5: #9c4a44;
+  --radius: 0.5rem;
 
-  /* Status accent — shared between badges, calendar slots, and the hero capsule. */
-  --status-available: #7d90c9;
-  --status-pending: #d98a2b;
-  --status-pending-glow: #f5a524;
+  /* usg.az's fixed navy header/footer bands, reused for the app sidebar. */
+  --sidebar: #172e35;
+  --sidebar-foreground: #f2f5f5;
+  --sidebar-primary: #df8130;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: color-mix(in oklab, white 10%, #172e35);
+  --sidebar-accent-foreground: #f2f5f5;
+  --sidebar-border: color-mix(in oklab, white 12%, #172e35);
+  --sidebar-ring: #df8130;
+
+  /* Status accent — shared between badges and the calendar. Kept visibly
+     distinct from --primary (orange is a brand/CTA color here, not a
+     status color) so a "Pending" badge never reads as a call to action. */
+  --status-available: #7f9aa3;
+  --status-pending: #b8860b;
+  --status-pending-glow: #d9a441;
   --status-approved: #158f63;
   --status-approved-glow: #22c58d;
   --status-rejected: #9c4a44;
-  --status-rejected-glow: #c1443d;
+  --status-rejected-glow: #b3261e;
 }
 
 .dark {
-  --background: #0a1120;
-  --foreground: #e8edf7;
-  --card: #101a2e;
-  --card-foreground: #e8edf7;
-  --popover: #101a2e;
-  --popover-foreground: #e8edf7;
-  --primary: #5b85f5;
-  --primary-foreground: #0a1120;
-  --secondary: #16233c;
-  --secondary-foreground: #e8edf7;
-  --muted: #16233c;
-  --muted-foreground: #8fa0bd;
-  --accent: #18294a;
-  --accent-foreground: #9db6f7;
-  --destructive: #f87171;
-  --border: color-mix(in oklab, #e8edf7 12%, transparent);
-  --input: color-mix(in oklab, #e8edf7 16%, transparent);
-  --ring: #5b85f5;
-  --chart-1: #5b85f5;
-  --chart-2: #2dd4bf;
-  --chart-3: #fbbf24;
-  --chart-4: #a78bfa;
-  --chart-5: #f472b6;
-  --sidebar: #0d1626;
-  --sidebar-foreground: #e8edf7;
-  --sidebar-primary: #5b85f5;
-  --sidebar-primary-foreground: #0a1120;
-  --sidebar-accent: #16233c;
-  --sidebar-accent-foreground: #9db6f7;
-  --sidebar-border: color-mix(in oklab, #e8edf7 10%, transparent);
-  --sidebar-ring: #5b85f5;
-}
-
-/*
- * The cinematic hero scene. Scoped to `.hero-scene` rather than `.dark` —
- * this is a fixed atmospheric backdrop for the "Make Space" moment, not a
- * user-facing dark-mode toggle for the workspace.
- */
-.hero-scene-vars {
-  --hero-bg: #090c13;
-  --hero-bg-2: #0d1220;
-  --hero-fg: #f4f2ec;
-  --hero-muted: #a7adc0;
-  --hero-border: color-mix(in oklab, white 12%, transparent);
-  --hero-blue: #4c6fff;
-  --hero-blue-soft: color-mix(in oklab, #4c6fff 35%, transparent);
-  --hero-amber: #e8a659;
-  --hero-emerald: #34d399;
-  --hero-grid-line: color-mix(in oklab, white 6%, transparent);
-}
-.hero-scene {
-  background: var(--hero-bg);
-  color: var(--hero-fg);
+  --background: #0e1a1f;
+  --foreground: #eef3f3;
+  --card: #142228;
+  --card-foreground: #eef3f3;
+  --popover: #142228;
+  --popover-foreground: #eef3f3;
+  --primary: #e69a4f;
+  --primary-foreground: #172e35;
+  --secondary: #1c2c32;
+  --secondary-foreground: #eef3f3;
+  --muted: #1c2c32;
+  --muted-foreground: #93a5ab;
+  --accent: #203339;
+  --accent-foreground: #cfe3e8;
+  --destructive: #f2837a;
+  --border: color-mix(in oklab, #eef3f3 12%, transparent);
+  --input: color-mix(in oklab, #eef3f3 16%, transparent);
+  --ring: #e69a4f;
+  --chart-1: #e69a4f;
+  --chart-2: #7fb3c2;
+  --chart-3: #93a5ab;
+  --chart-4: #4ade80;
+  --chart-5: #f2837a;
+  --sidebar: #0b1518;
+  --sidebar-foreground: #eef3f3;
+  --sidebar-primary: #e69a4f;
+  --sidebar-primary-foreground: #172e35;
+  --sidebar-accent: #1c2c32;
+  --sidebar-accent-foreground: #cfe3e8;
+  --sidebar-border: color-mix(in oklab, #eef3f3 10%, transparent);
+  --sidebar-ring: #e69a4f;
 }
 
 @layer base {
@@ -167,67 +149,9 @@
     text-wrap: balance;
   }
 
-  .font-serif-display {
-    font-family: var(--font-serif), ui-serif, Georgia, serif;
-    font-feature-settings: "ss01" 1, "liga" 1;
-  }
-
-  /* Very restrained architectural grid — thin lines suggesting a floor plan. */
-  .bg-architectural-grid {
-    background-image:
-      linear-gradient(to right, var(--grid-line, var(--border)) 1px, transparent 1px),
-      linear-gradient(to bottom, var(--grid-line, var(--border)) 1px, transparent 1px);
-    background-size: 64px 64px;
-  }
-
-  /* A near-invisible film grain, layered via pseudo-element so it never
-     interferes with text contrast underneath. */
-  .bg-grain::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0.05;
-    mix-blend-mode: overlay;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  }
-
-  /* Rounded frames inspired by doors and rooms: a taller top arc than base. */
-  .door-frame {
-    border-radius: 1.75rem 1.75rem 0.85rem 0.85rem;
-  }
-
   .glow-ring {
     box-shadow: 0 0 0 1px var(--tw-ring-color, transparent), 0 0 24px -4px var(--tw-shadow-color, transparent);
   }
-}
-
-/* Room capsule — the one signature hero object (see room-capsule.tsx). */
-.capsule-tilt {
-  transform: rotateX(8deg) rotateY(-10deg);
-  animation: capsule-float 10s ease-in-out infinite;
-  will-change: transform;
-}
-@keyframes capsule-float {
-  0%, 100% { transform: rotateX(8deg) rotateY(-10deg) translateY(0px); }
-  50% { transform: rotateX(6deg) rotateY(-8deg) translateY(-10px); }
-}
-.capsule-ambient {
-  animation: capsule-breathe 7s ease-in-out infinite;
-}
-.capsule-ambient-delay {
-  animation-delay: 1.4s;
-}
-@keyframes capsule-breathe {
-  0%, 100% { opacity: 0.75; }
-  50% { opacity: 1; }
-}
-.capsule-slot-lit {
-  animation: capsule-pulse 4.5s ease-in-out infinite;
-}
-@keyframes capsule-pulse {
-  0%, 100% { opacity: 0.75; }
-  50% { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -238,8 +162,5 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
-  }
-  .capsule-tilt {
-    transform: rotateX(8deg) rotateY(-10deg) !important;
   }
 }

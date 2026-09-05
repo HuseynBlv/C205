@@ -23,7 +23,7 @@ export function AppShell({
     <div className="flex min-h-dvh bg-background">
       <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
         <div className="border-b border-sidebar-border px-4 py-4">
-          <BrandMark />
+          <BrandMark tone="dark" />
         </div>
         <div className="flex-1 space-y-6 overflow-y-auto px-3 py-5">
           <SidebarNavGroup title="Workspace" items={primaryNavItems} />
@@ -32,7 +32,7 @@ export function AppShell({
           ) : null}
         </div>
         <div className="border-t border-sidebar-border p-3">
-          <UserMenu user={user} onSignOut={onSignOut} />
+          <UserMenu user={user} onSignOut={onSignOut} tone="dark" />
         </div>
       </aside>
 

@@ -236,7 +236,7 @@ export function RequestForm() {
             ) : null}
 
             {/* Reservation summary — the slot's illumination travels here. */}
-            <div className="door-frame border border-border bg-muted/40 p-4">
+            <div className="rounded-lg border border-border bg-muted/40 p-4">
               <p className="mb-2.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
                 Reservation summary
               </p>

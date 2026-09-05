@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import {
   ArrowRight,
   CalendarClock,
@@ -7,8 +8,6 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { RoomCapsule } from "@/components/marketing/room-capsule";
-import { HeroToCalendarTransition } from "@/components/marketing/hero-transition";
 import { ROOM_NAME, ORG_NAME } from "@/lib/config";
 
 const workflowSteps = [
@@ -64,42 +63,35 @@ const features = [
 export default function MarketingHomePage() {
   return (
     <div>
-      {/* Hero — the one cinematic moment in the product. */}
-      <section className="hero-scene hero-scene-vars bg-grain relative isolate flex min-h-dvh flex-col justify-center overflow-hidden px-4 pt-24 pb-16 md:px-8">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(60% 50% at 18% 12%, color-mix(in oklab, var(--hero-blue) 22%, transparent), transparent), radial-gradient(55% 45% at 85% 88%, color-mix(in oklab, var(--hero-amber) 16%, transparent), transparent)",
-          }}
+      {/* Hero: ADA University campus photo under a navy overlay, matching
+          usg.az's own hero treatment (same photo, supplied by the user). */}
+      <section className="relative isolate overflow-hidden px-4 py-20 md:px-8 md:py-28">
+        <Image
+          src="/hero-campus.jpg"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="-z-20 object-cover"
         />
-        <div
-          aria-hidden="true"
-          className="bg-architectural-grid pointer-events-none absolute inset-0 opacity-[0.05]"
-          style={{ "--grid-line": "white" } as React.CSSProperties}
-        />
+        <div className="absolute inset-0 -z-10 bg-[#172e35]/85" />
 
-        <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col items-center text-center">
-          <span className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium tracking-wide text-[#dcdfe8]">
+        <div className="mx-auto flex w-full max-w-5xl flex-col items-start text-left">
+          <span className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium tracking-wide text-[#dbe4e6]">
             {ORG_NAME}
           </span>
 
-          <h1 className="font-serif-display mt-6 max-w-3xl text-4xl leading-[1.08] font-medium text-balance text-[#f4f2ec] sm:text-6xl md:text-7xl">
-            Make space for what matters.
+          <h1 className="mt-6 max-w-2xl text-4xl leading-[1.1] font-bold text-balance text-white sm:text-5xl md:text-6xl">
+            Reserve C205, without the back-and-forth.
           </h1>
 
-          <p className="mt-6 max-w-xl text-base leading-relaxed text-[#c3c7d4] md:text-lg">
+          <p className="mt-6 max-w-xl text-base leading-relaxed text-[#c7d2d5] md:text-lg">
             View {ROOM_NAME} availability, submit your request, and follow its
             approval status — all in one place.
           </p>
 
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Button
-              size="lg"
-              asChild
-              className="rounded-full bg-[var(--hero-blue)] px-6 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_20px_40px_-16px_var(--hero-blue)] hover:bg-[var(--hero-blue)]/90"
-            >
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <Button size="lg" asChild>
               <Link href="/requests/new">
                 Request {ROOM_NAME}
                 <ArrowRight className="size-4" />
@@ -109,29 +101,22 @@ export default function MarketingHomePage() {
               size="lg"
               variant="outline"
               asChild
-              className="rounded-full border-white/20 bg-transparent px-6 text-[#f4f2ec] hover:bg-white/10"
+              className="border-white/25 bg-transparent text-white hover:bg-white/10"
             >
               <Link href="/calendar">View availability</Link>
             </Button>
           </div>
-
-          <div className="mt-14 w-full max-w-md sm:mt-16 sm:max-w-lg">
-            <RoomCapsule className="mx-auto aspect-square w-full" />
-          </div>
         </div>
       </section>
 
-      {/* Signature transition: the capsule simplifies into the real calendar. */}
-      <HeroToCalendarTransition />
-
       <div className="mx-auto w-full max-w-5xl px-4 pb-24 md:px-6">
-        <section className="border-t border-border py-14 md:py-20">
-          <h2 className="text-xl font-semibold text-foreground md:text-2xl">How it works</h2>
+        <section className="py-14 md:py-20">
+          <h2 className="text-xl font-bold text-foreground md:text-2xl">How it works</h2>
           <div className="mt-8 grid gap-4 md:grid-cols-4">
             {workflowSteps.map((step, i) => (
               <div
                 key={step.title}
-                className="door-frame relative border border-border bg-card p-5"
+                className="rounded-lg border border-border bg-card p-5"
               >
                 <span className="text-xs font-semibold text-primary">Step {i + 1}</span>
                 <p className="mt-2 text-sm font-medium text-foreground">{step.title}</p>
@@ -144,12 +129,12 @@ export default function MarketingHomePage() {
         </section>
 
         <section className="border-t border-border py-14 md:py-20">
-          <h2 className="text-xl font-semibold text-foreground md:text-2xl">Built for how USG operates</h2>
+          <h2 className="text-xl font-bold text-foreground md:text-2xl">Built for how USG operates</h2>
           <div className="mt-8 grid gap-4 sm:grid-cols-2">
             {features.map(({ icon: Icon, title, description }) => (
               <div
                 key={title}
-                className="flex gap-4 rounded-xl border border-border bg-card p-5"
+                className="flex gap-4 rounded-lg border border-border bg-card p-5"
               >
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent">
                   <Icon className="size-5 text-accent-foreground" aria-hidden="true" />

@@ -59,7 +59,7 @@ export default function CalendarPage() {
           description="An administrator hasn't published open hours for C205 yet. Check back soon."
         />
       ) : (
-        <div className="door-frame overflow-hidden border border-border bg-card">
+        <div className="rounded-lg overflow-hidden border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div>
               <p className="text-sm font-medium text-foreground">This week at C205</p>
@@ -75,7 +75,7 @@ export default function CalendarPage() {
             </div>
           </div>
 
-          <div className="bg-architectural-grid overflow-x-auto">
+          <div className="overflow-x-auto">
             <div
               className="grid gap-px bg-border p-px"
               style={{ gridTemplateColumns: `repeat(${availability.length}, minmax(140px, 1fr))` }}

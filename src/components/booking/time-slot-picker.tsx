@@ -8,8 +8,8 @@ const allOptions = generateTimeOptions(30);
 const options = allOptions.filter((o) => o.value >= "07:00" && o.value <= "21:00");
 
 /**
- * Time slots rendered as small illuminated windows rather than a plain
- * dropdown — the same visual language as the hero capsule and calendar grid.
+ * Time slots rendered as a horizontally scrollable row of small buttons
+ * rather than a plain dropdown, so the full range stays scannable.
  */
 export function TimeSlotPicker({
   value,
@@ -43,7 +43,7 @@ export function TimeSlotPicker({
             className={cn(
               "flex h-11 w-16 shrink-0 flex-col items-center justify-center rounded-md border text-[11px] font-medium transition-all duration-200",
               selected
-                ? "border-primary bg-primary text-primary-foreground shadow-[0_0_14px_-2px_var(--primary)]"
+                ? "border-primary bg-primary text-primary-foreground"
                 : "border-border bg-card text-foreground/80 hover:border-primary/40 hover:bg-accent",
             )}
           >

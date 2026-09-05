@@ -10,6 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import type { AppUser } from "@/lib/types";
 
 function initials(name: string) {
@@ -21,13 +22,26 @@ function initials(name: string) {
     .toUpperCase();
 }
 
-export function UserMenu({ user, onSignOut }: { user: AppUser; onSignOut?: () => void }) {
+export function UserMenu({
+  user,
+  onSignOut,
+  tone = "light",
+}: {
+  user: AppUser;
+  onSignOut?: () => void;
+  /** "dark" when rendered on the navy sidebar; "light" everywhere else (default). */
+  tone?: "light" | "dark";
+}) {
+  const isDark = tone === "dark";
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/60"
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors",
+            isDark ? "hover:bg-sidebar-accent/60" : "hover:bg-muted",
+          )}
         >
           <Avatar className="size-8">
             <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
@@ -35,10 +49,17 @@ export function UserMenu({ user, onSignOut }: { user: AppUser; onSignOut?: () =>
             </AvatarFallback>
           </Avatar>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium text-foreground">
+            <span
+              className={cn(
+                "block truncate text-sm font-medium",
+                isDark ? "text-sidebar-foreground" : "text-foreground",
+              )}
+            >
               {user.fullName}
             </span>
-            <span className="block truncate text-xs text-muted-foreground">{user.email}</span>
+            <span className={cn("block truncate text-xs", isDark ? "text-sidebar-foreground/60" : "text-muted-foreground")}>
+              {user.email}
+            </span>
           </span>
         </button>
       </DropdownMenuTrigger>
