@@ -4,6 +4,18 @@ import { PreviewNotice } from "@/components/shared/preview-notice";
 import { EmptyState } from "@/components/states/empty-state";
 import { fixtureAvailability } from "@/lib/fixtures/data";
 import { useFixtures, ROOM_TIMEZONE } from "@/lib/config";
+import { createClient } from "@/lib/supabase/server";
+import { CalendarView, type CalendarEvent } from "@/components/calendar/calendar-view";
+import type { Tables } from "@/lib/supabase/database.types";
+import { formatInTimeZone } from "date-fns-tz";
+
+/** Naive (no offset) Asia/Baku wall-clock string — see calendar-view.tsx's
+ * comment on why this, rather than passing the stored UTC ISO string
+ * straight through with a "timeZone" prop, is what actually displays the
+ * right time to a viewer in any browser timezone. */
+function toBakuWallClock(iso: string): string {
+  return formatInTimeZone(new Date(iso), ROOM_TIMEZONE, "yyyy-MM-dd'T'HH:mm:ss");
+}
 
 function formatWeekday(dateStr: string) {
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-US", {
@@ -36,9 +48,59 @@ function windowStyle(startTime: string, endTime: string) {
   };
 }
 
-export default function CalendarPage() {
-  const availability = useFixtures ? fixtureAvailability : [];
+async function RealCalendar() {
+  const supabase = await createClient();
+  const [{ data: windows }, { data: blocks }, { data: occupancy }] = await Promise.all([
+    supabase.from("availability_windows").select("*"),
+    supabase.from("blocked_intervals").select("*"),
+    supabase.from("room_occupancy").select("*"),
+  ]);
 
+  const windowRows = (windows ?? []) as Tables<"availability_windows">[];
+  const blockRows = (blocks ?? []) as Tables<"blocked_intervals">[];
+  const occupancyRows = (occupancy ?? []) as Tables<"room_occupancy">[];
+
+  if (windowRows.length === 0 && occupancyRows.length === 0) {
+    return (
+      <EmptyState
+        icon={CalendarOff}
+        title="No availability published"
+        description="An administrator hasn't published open hours for C205 yet. Check back soon."
+      />
+    );
+  }
+
+  const events: CalendarEvent[] = [
+    ...windowRows.map((w) => ({
+      start: toBakuWallClock(w.starts_at),
+      end: toBakuWallClock(w.ends_at),
+      display: "background" as const,
+      backgroundColor: "var(--primary)",
+      title: w.label ?? "Available",
+    })),
+    ...blockRows.map((b) => ({
+      start: toBakuWallClock(b.starts_at),
+      end: toBakuWallClock(b.ends_at),
+      display: "background" as const,
+      backgroundColor: "var(--status-rejected)",
+      title: b.reason,
+    })),
+    ...occupancyRows.map((r) => ({
+      id: r.id ?? undefined,
+      start: r.starts_at ? toBakuWallClock(r.starts_at) : undefined,
+      end: r.ends_at ? toBakuWallClock(r.ends_at) : undefined,
+      title: r.status === "APPROVED" ? "Reserved" : "Pending request",
+      backgroundColor: r.status === "APPROVED" ? "var(--status-approved)" : "var(--status-pending)",
+      borderColor: r.status === "APPROVED" ? "var(--status-approved)" : "var(--status-pending)",
+      textColor: "#ffffff",
+      classNames: r.status === "PENDING" ? ["opacity-70"] : [],
+    })),
+  ];
+
+  return <CalendarView events={events} />;
+}
+
+export default function CalendarPage() {
   return (
     <div>
       <PageHeader
@@ -46,10 +108,19 @@ export default function CalendarPage() {
         description={`Published availability for C205 · times shown in ${ROOM_TIMEZONE}`}
       />
 
+      {useFixtures ? <FixtureCalendar /> : <RealCalendar />}
+    </div>
+  );
+}
+
+function FixtureCalendar() {
+  const availability = fixtureAvailability;
+
+  return (
+    <div>
       <PreviewNotice>
-        This is the published-hours preview. The interactive scheduling grid
-        (drag to select a slot, live overlap checks) lands with the booking
-        engine step — dates here are read-only fixture data.
+        This is the published-hours preview using fixture data. Set
+        NEXT_PUBLIC_USE_FIXTURES=false to see the real calendar.
       </PreviewNotice>
 
       {availability.length === 0 ? (

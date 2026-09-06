@@ -330,6 +330,56 @@ situational validation errors (bad input shape, not-found) keep the
 codebase's existing free-text convention since they aren't part of this
 specific contract.
 
+## Booking engine UI wiring (`src/lib/booking/`, `src/components/calendar/`)
+
+The app-code side of the booking engine — Server Actions calling each
+Postgres function above, and the pages that use them.
+
+- **`src/lib/booking/actions.ts`** — `submitRequestAction`,
+  `cancelReservationAction`, `approveRequestAction`, `rejectRequestAction`,
+  `createManualReservationAction` (RPC wrapper exists; no UI calls it
+  yet), `getConflictWarnings`. Each maps a stable error code to
+  user-facing copy via `src/lib/booking/errors.ts`, and revalidates every
+  path whose data it could have changed.
+- **`src/lib/booking/availability-actions.ts`** — the four availability/
+  block mutation wrappers, same pattern.
+- **`src/lib/booking/timezone.ts`** — `roomLocalToUtcIso(date, time)`
+  combines a local date + time-of-day, interpreted in `ROOM_TIMEZONE`
+  (Asia/Baku), into the UTC ISO string the RPCs expect
+  (`date-fns-tz`'s `fromZonedTime`). This exact kind of naive-timestamp-
+  vs-session-timezone mismatch is what broke `supabase/seed.sql` (see
+  IMPLEMENTATION_CHECKLIST.md's Step 3b "Bugs found") — this helper is
+  the one place in app code that does the conversion, so it only had to
+  be gotten right once.
+- **`requests/new`** (`RequestForm`) — a per-mount idempotency key
+  (lazy `useState`, not a `useRef` — reading a ref inside the
+  `handleSubmit` callback trips `react-hooks/refs`, since that callback
+  is *constructed* during render even though it only *runs* on submit) is
+  sent with every submission, so a retried request after a dropped
+  network response can't create a duplicate.
+- **`/calendar`** (`src/components/calendar/calendar-view.tsx`) —
+  FullCalendar, read-only: published availability and blocked intervals
+  as background events, `room_occupancy` as real (anonymized) events.
+  Deliberately renders with `timeZone="UTC"` and pre-formats every event's
+  start/end into a naive Asia/Baku wall-clock string server-side, rather
+  than passing `timeZone="Asia/Baku"` straight through — FullCalendar's
+  core doesn't understand named IANA zones without the separate
+  `@fullcalendar/moment-timezone` plugin (not installed), and silently
+  falls back to the *viewer's own browser zone* otherwise, showing the
+  wrong time to anyone not physically in Baku.
+- **`admin/reservations`** — real pending/decided lists, `Approve`/
+  `Reject` buttons calling the Server Actions above, and
+  `reservation_conflict_warnings` rendered as badges on pending items.
+- **`admin/availability`** — real window/block lists with inline
+  publish/block forms and per-row `Remove` buttons.
+- **`@fullcalendar/react` was pinned to `^7.0.2` while `core`/`daygrid`/
+  `timegrid`/`interaction` were pinned to `^6.1.21`** since Step 1 — a
+  genuine major-version mismatch nothing had exercised until this step
+  first rendered a `<FullCalendar>` component. Fixed by pinning
+  `@fullcalendar/react` back to `^6.1.21` to match the rest, rather than
+  upgrading everything to 7.x (which pulls in a new
+  `@full-ui/headless-calendar` peer dependency not worth taking on here).
+
 ## Fixtures vs. production (`src/lib/config.ts`)
 
 ```ts
@@ -457,26 +507,32 @@ relying on the browser's local zone. The eventual schema stores
 
 ## What's explicitly deferred
 
-Auth + account authorization are fully wired to real Supabase, both
-locally and on a linked hosted project (C205-prod — see
-IMPLEMENTATION_CHECKLIST.md's Step 2b for its own remaining gaps, notably
-that its email templates can't be pushed until custom SMTP is configured).
-The full booking-engine database layer (Step 3a) also exists and is
-verified against a live database — but no app code calls any of it yet
-(Step 3b): `useFixtures` still governs the calendar/requests/admin-
-reservations/admin-availability screens' actual *content* (their auth
-*gating* is real). The booking form on `requests/new` currently validates
-shape only (required fields, end after start, positive participant
-count) client-side — wiring it to `submit_request` and surfacing its six
-stable error codes as real form errors is Step 3b, along with FullCalendar
-on `/calendar` and the real mobile time-list interaction. Notifications
-and the email outbox don't exist as a *sending* pipeline yet — the
-`email_outbox` table does, and `submit_request`/`approve_request`/
-`reject_request`/`cancel_reservation`/`modify_reservation`/
-`create_manual_reservation` all already write real jobs into it, but
-nothing drains it (Step 5). None of this is faked in the UI; screens that
-would depend on it show a `PreviewNotice` or an honest empty state
-instead.
+Auth, account authorization, and the full booking engine (submit, approve,
+reject, cancel, availability publishing/blocking, the desktop calendar)
+are all wired to real Supabase now — both locally and on a linked hosted
+project (C205-prod — see IMPLEMENTATION_CHECKLIST.md's Step 2b for its own
+remaining gap, that its email templates can't be pushed until custom SMTP
+is configured). What's still deferred:
+
+- **`modify_reservation` and `create_manual_reservation` have no UI.**
+  Both database functions exist and are pgTAP-tested (Step 3a); wiring an
+  "edit this reservation" or "book directly on someone's behalf" admin
+  screen was deprioritized in Step 3b in favor of the core submit →
+  approve/reject → cancel loop.
+- **`admin/settings` (the USG notification email) is still fixtures-only.**
+  `set_usg_notification_email()` exists (Step 2a) but nothing calls it yet.
+- **Notifications don't send.** `submit_request`/`approve_request`/
+  `reject_request`/`cancel_reservation`/`modify_reservation`/
+  `create_manual_reservation` all write real jobs into `email_outbox`, but
+  nothing drains that queue yet (Step 5).
+- **The calendar is read-only** — no drag-to-select or click-to-prefill
+  the request form. Booking happens entirely through `/requests/new`.
+- **A requester can't withdraw their own PENDING request** — see Step
+  3a's note on the tightened state machine (`PENDING → CANCELLED` isn't a
+  valid transition; only an admin rejecting achieves the equivalent).
+
+None of this is faked in the UI; screens that would depend on it show a
+`PreviewNotice` or an honest empty state instead.
 
 The admin Approve/Reject buttons on `admin/reservations` are now clickable
 (previously `disabled`) so the decision motion and card layout can be

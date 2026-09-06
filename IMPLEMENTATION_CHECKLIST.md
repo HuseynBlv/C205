@@ -461,30 +461,114 @@ to them yet (that's 3b, below).
   cancel via... they currently can't — see the gap above — and resubmit,
   once cancellation of a PENDING request exists).
 
-## Step 3b — Booking engine: UI wiring (not started)
+## Step 3b — Booking engine: UI wiring ✅ (this step)
 
-- [ ] `requests/new` wired to `submit_request`, surfacing the six stable
-      error codes as real form errors
-- [ ] FullCalendar wired into `/calendar` for desktop
-- [ ] Real mobile date-picker + time-list booking interaction
-- [ ] `admin/reservations` wired to `approve_request`/`reject_request`,
-      showing `reservation_conflict_warnings` on pending items
-- [ ] `admin/availability` wired to the availability mutation functions
+- [x] `requests/new` wired to `submit_request` (`src/lib/booking/actions.ts`),
+      with a stable-error-to-copy map (`src/lib/booking/errors.ts`) so
+      `OUTSIDE_AVAILABILITY`/`RESERVATION_CONFLICT`/`ADVANCE_NOTICE_REQUIRED`
+      etc. show as real, specific form errors instead of a generic failure.
+      A per-mount idempotency key is generated once (`useState` lazy
+      initializer, not a `ref` — see "Bugs found" below) so a retried
+      submission after a network blip can't create a duplicate request.
+      The mobile time-list picker (`TimeSlotPicker`, built in Step 1) now
+      drives a real submission — no separate "mobile interaction" work was
+      needed once the form itself was wired
+- [x] FullCalendar wired into `/calendar` (`src/components/calendar/calendar-view.tsx`):
+      published availability and blocked intervals as background events,
+      the anonymized `room_occupancy` projection as real events (PENDING
+      shown dimmed, APPROVED solid) — no requester identity, matching the
+      view's own anonymity guarantee
+- [x] `admin/reservations` wired to `approve_request`/`reject_request`
+      with `reservation_conflict_warnings` shown as badges on pending
+      items whose fit has changed since submission
+- [x] `admin/availability` wired to `publish_availability_window`/
+      `remove_availability_window`/`create_blocked_interval`/
+      `remove_blocked_interval`, with simple inline forms
+- [x] "My Requests" lists the caller's own real reservations (RLS-scoped)
+      and gained a real Cancel action for APPROVED reservations (using
+      `cancel_reservation`'s optimistic version)
 
-## Step 4 — User & admin screens (not started)
+### Known gaps after this step
 
-- [ ] My Requests backed by real data + realtime-ish status updates
-- [x] ~~Admin reservation review (approve/reject with reason), manual
-      create/modify/cancel, override with reason~~ — the database
-      functions exist now (Step 3a); UI wiring is Step 3b/4
+- **`modify_reservation` and `create_manual_reservation` have no UI yet**
+  — both database functions exist and are pgTAP-tested (Step 3a), but
+  wiring an admin-facing "edit this reservation's time" or "book directly
+  on someone's behalf" screen was deliberately deprioritized this step in
+  favor of the core submit → approve/reject → cancel loop. Revisit as
+  part of Step 4 if manual admin bookings are needed before real email
+  notifications go out.
+- The FullCalendar view is read-only — no drag-to-select, no click-to-
+  prefill-the-request-form. Booking still happens entirely through
+  `/requests/new`.
+- `getConflictWarnings` runs one `reservation_conflict_warnings` RPC call
+  per pending reservation on `admin/reservations` (an N+1 pattern) —
+  fine at this app's scale (one room, a handful of pending requests at
+  once), but worth a single batched query if that ever stops being true.
+
+### Bugs found and fixed by actually running this step
+
+- **`supabase/seed.sql`'s availability windows and demo reservations were
+  stored 4 hours off from their intended Asia/Baku wall-clock time** —
+  `d::date + time '09:00'` is a naive timestamp, which casts to
+  `timestamptz` using the *session's* timezone (UTC for this database),
+  not `rooms.timezone` (Asia/Baku). "9am-6pm" was actually stored as
+  1pm-10pm Baku time. This was invisible until this step: pgTAP's own
+  tests always used `now() + interval` (already absolute, no naive-
+  timestamp ambiguity) or a deliberately wide-open test window spanning
+  every hour, and nothing before this step ever submitted a *real*
+  request through a *real*, timezone-aware client against the seeded
+  data. The first real submission through the actual UI — 9:00 AM Baku,
+  which should obviously fit "9am-6pm weekday hours" — was rejected with
+  `OUTSIDE_AVAILABILITY`, which is what surfaced it. Fixed by wrapping
+  every naive date+time expression in `seed.sql` with
+  `at time zone 'Asia/Baku'`.
+- **FullCalendar's core doesn't understand named IANA timezones** (like
+  `"Asia/Baku"`) without the separate `@fullcalendar/moment-timezone`
+  plugin (not installed) — passing one to the `timeZone` prop is silently
+  ignored, and it falls back to the *viewer's own browser* timezone. That
+  would have shown every event 4 hours off (or a different offset
+  entirely) to anyone not physically in Baku. Fixed without adding a
+  dependency: every event's start/end is pre-formatted server-side into a
+  naive (no offset) Asia/Baku wall-clock string
+  (`date-fns-tz`'s `formatInTimeZone`), and the component's `timeZone`
+  prop is set to the literal `"UTC"` — which FullCalendar *does* support
+  natively — so it renders those naive strings at face value instead of
+  reinterpreting them through the browser's zone.
+- **`@fullcalendar/react@^7.0.2` was paired with `@fullcalendar/core`/
+  `daygrid`/`timegrid`/`interaction` all pinned at `^6.1.21`** in
+  `package.json` since Step 1 — a real major-version mismatch (React 7.x
+  requires FullCalendar core 7.x) that had simply never been exercised
+  until this step tried to actually render a `<FullCalendar>` component,
+  surfacing as a wall of TypeScript errors about incompatible internal
+  types. `@fullcalendar/core` 7.x turned out to pull in a new peer
+  dependency chain (`@full-ui/headless-calendar`) not worth taking on
+  right now, so the fix was downgrading `@fullcalendar/react` to
+  `^6.1.21` to match the rest, rather than upgrading everything to 7.x.
+- A `react-hooks/refs` ESLint error: reading `idempotencyKey.current`
+  inside the callback passed to `react-hook-form`'s `handleSubmit(...)` —
+  a real lint rule catching a real (if narrow) footgun, since that
+  callback is *constructed* during render even though it only ever runs
+  on submit. Fixed by using lazy-initialized `useState` instead of
+  `useRef` for a value that only ever needs to be read, not mutated.
+
+## Step 4 — User & admin screens (mostly done early)
+
+- [x] ~~My Requests backed by real data~~ — done in Step 3b (real-time
+      "realtime-ish" push updates, e.g. via Supabase Realtime, are still
+      not implemented; the page reflects the latest state on each load/
+      revalidation, not live-push)
+- [x] ~~Admin reservation review (approve/reject with reason)~~ — done in
+      Step 3b. Manual create/modify with override reason still have no UI
+      (Step 3a's database functions exist and are tested; see that step's
+      "Known gaps")
 - [x] ~~Admin availability publishing/blocking, without silently cancelling
-      approved reservations~~ — the database functions exist now (Step
-      3a: blocking never touches existing reservations, see that
-      function's comment); UI wiring is Step 3b
+      approved reservations~~ — done in Step 3b (blocking never touches
+      existing reservations, verified in Step 3a's function/tests)
 - [x] ~~Admin account management (authorize/reject/suspend/restore/remove)~~
       — done early, in Step 2b, since the auth step needed it to
       demonstrate authorization gating end-to-end
-- [ ] USG notification email setting persisted
+- [ ] USG notification email setting persisted (UI still fixtures-only on
+      `admin/settings`)
 
 ## Step 5 — Notifications (not started)
 

@@ -22,8 +22,10 @@ import { DateField } from "@/components/booking/date-field";
 import { TimeSlotPicker } from "@/components/booking/time-slot-picker";
 import { useSlotTravelGlow } from "@/components/booking/use-slot-travel-glow";
 import { PreviewNotice } from "@/components/shared/preview-notice";
-import { ROOM_NAME, ROOM_TIMEZONE } from "@/lib/config";
+import { ROOM_NAME, ROOM_TIMEZONE, useFixtures } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import { submitRequestAction } from "@/lib/booking/actions";
+import { roomLocalToUtcIso } from "@/lib/booking/timezone";
 
 const requestSchema = z
   .object({
@@ -59,9 +61,20 @@ function formatTimeLabel(value: string) {
   return `${h12}:${String(m).padStart(2, "0")} ${period}`;
 }
 
-export function RequestForm() {
+export function RequestForm({ roomId }: { roomId: string | null }) {
   const [submitted, setSubmitted] = useState<RequestValues | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const summaryTimeRef = useRef<HTMLDivElement>(null);
+  // Stable for the life of this form mount (lazy-initialized state, not a
+  // ref — reading a ref's .current inside the handleSubmit callback below
+  // trips the react-hooks/refs rule, since that callback is *constructed*
+  // during render even though it only ever *runs* on submit), so a
+  // retried submission (e.g. after a network blip) after the first one
+  // actually succeeded is recognized as the same request rather than
+  // creating a duplicate.
+  const [idempotencyKey] = useState<string | undefined>(() =>
+    typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : undefined,
+  );
   const { fire, node: travelGlow } = useSlotTravelGlow();
   const {
     control,
@@ -77,9 +90,32 @@ export function RequestForm() {
   const values = useWatch({ control });
 
   const onSubmit = handleSubmit(async (formValues) => {
-    // No backend yet: the booking engine step wires this to a server action
-    // that enforces availability, the 72-hour rule, and overlap checks.
-    await new Promise((r) => setTimeout(r, 500));
+    setFormError(null);
+
+    if (useFixtures) {
+      await new Promise((r) => setTimeout(r, 500));
+      setSubmitted(formValues);
+      return;
+    }
+
+    if (!roomId) {
+      setFormError("C205 isn't configured yet. Contact an administrator.");
+      return;
+    }
+
+    const result = await submitRequestAction({
+      roomId,
+      startsAt: roomLocalToUtcIso(formValues.date, formValues.startTime),
+      endsAt: roomLocalToUtcIso(formValues.date, formValues.endTime),
+      purpose: formValues.purpose,
+      participantCount: formValues.participantCount,
+      idempotencyKey,
+    });
+
+    if (!result.ok) {
+      setFormError(result.error);
+      return;
+    }
     setSubmitted(formValues);
   });
 
@@ -107,9 +143,9 @@ export function RequestForm() {
             </p>
           </div>
           <p className="max-w-sm text-sm text-muted-foreground">
-            In the finished system this would submit for USG review, notify
-            USG, and email you confirming your request is Pending. No request
-            was actually created — this build has no backend yet.
+            {useFixtures
+              ? "In the finished system this would submit for USG review, notify USG, and email you confirming your request is Pending. No request was actually created — this is a fixture preview."
+              : "USG has been notified and you'll receive an email as soon as a decision is made. Submitting never confirms a booking."}
           </p>
           <Button
             variant="outline"
@@ -119,7 +155,7 @@ export function RequestForm() {
               reset();
             }}
           >
-            Start another preview
+            {useFixtures ? "Start another preview" : "Submit another request"}
           </Button>
         </CardContent>
       </Card>
@@ -129,11 +165,12 @@ export function RequestForm() {
   return (
     <div>
       {travelGlow}
-      <PreviewNotice>
-        Submission is not connected to a backend yet — the booking engine
-        step adds the 72-hour advance-notice rule, availability checks, and
-        real persistence.
-      </PreviewNotice>
+      {useFixtures ? (
+        <PreviewNotice>
+          This is a fixture preview — submitting doesn&apos;t create a real
+          request. Set NEXT_PUBLIC_USE_FIXTURES=false to submit for real.
+        </PreviewNotice>
+      ) : null}
       <Card>
         <CardHeader>
           <CardTitle>Request {ROOM_NAME}</CardTitle>
@@ -232,6 +269,13 @@ export function RequestForm() {
                 <AlertDescription>
                   A few fields need your attention before this can be submitted.
                 </AlertDescription>
+              </Alert>
+            ) : null}
+
+            {formError ? (
+              <Alert variant="destructive">
+                <AlertTitle>Couldn&apos;t submit this request</AlertTitle>
+                <AlertDescription>{formError}</AlertDescription>
               </Alert>
             ) : null}
 

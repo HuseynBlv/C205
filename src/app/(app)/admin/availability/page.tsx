@@ -7,8 +7,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/states/empty-state";
 import { fixtureAvailability } from "@/lib/fixtures/data";
-import { useFixtures } from "@/lib/config";
+import { useFixtures, ROOM_TIMEZONE } from "@/lib/config";
 import { getCurrentProfile, isActiveAdmin } from "@/lib/auth/dal";
+import { createClient } from "@/lib/supabase/server";
+import {
+  CreateBlockForm,
+  PublishAvailabilityForm,
+} from "@/app/(app)/admin/availability/availability-forms";
+import { RemoveButton } from "@/app/(app)/admin/availability/remove-button";
+import type { Tables } from "@/lib/supabase/database.types";
 
 function formatDate(dateStr: string) {
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-US", {
@@ -18,28 +25,44 @@ function formatDate(dateStr: string) {
   });
 }
 
-export default async function AdminAvailabilityPage() {
-  const availability = useFixtures ? fixtureAvailability : [];
-  const profile = useFixtures ? null : await getCurrentProfile();
+function formatRange(startsAt: string, endsAt: string) {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: ROOM_TIMEZONE,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${fmt.format(new Date(startsAt))} – ${fmt.format(new Date(endsAt))}`;
+}
+
+async function RealAvailability({ roomId }: { roomId: string }) {
+  const supabase = await createClient();
+  const [{ data: windows }, { data: blocks }] = await Promise.all([
+    supabase
+      .from("availability_windows")
+      .select("*")
+      .eq("room_id", roomId)
+      .order("starts_at", { ascending: true }),
+    supabase
+      .from("blocked_intervals")
+      .select("*")
+      .eq("room_id", roomId)
+      .order("starts_at", { ascending: true }),
+  ]);
+
+  const windowRows = (windows ?? []) as Tables<"availability_windows">[];
+  const blockRows = (blocks ?? []) as Tables<"blocked_intervals">[];
 
   return (
-    <RequireAdmin isAdmin={useFixtures ? undefined : isActiveAdmin(profile)}>
-      <PageHeader
-        title="Availability"
-        description="Publish monthly open hours and block dates or hours for C205."
-        actions={
-          <Button size="sm" disabled>
-            Publish availability
-          </Button>
-        }
-      />
-      <PreviewNotice>
-        Publishing and blocking availability is connected in the booking
-        engine step. Closing availability will never silently cancel an
-        approved reservation.
-      </PreviewNotice>
+    <div className="space-y-6">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <PublishAvailabilityForm roomId={roomId} />
+        <CreateBlockForm roomId={roomId} />
+      </div>
 
-      {availability.length === 0 ? (
+      {windowRows.length === 0 && blockRows.length === 0 ? (
         <EmptyState
           icon={DoorOpen}
           title="No availability published"
@@ -47,29 +70,115 @@ export default async function AdminAvailabilityPage() {
         />
       ) : (
         <div className="space-y-3">
-          {availability.map((window) => (
-            <Card key={window.id}>
+          {windowRows.map((w) => (
+            <Card key={w.id}>
               <CardContent className="flex items-center justify-between gap-3 p-4">
                 <div>
-                  <p className="text-sm font-medium text-foreground">{formatDate(window.date)}</p>
+                  <p className="text-sm font-medium text-foreground">
+                    {w.label ?? "Availability window"}
+                  </p>
                   <p className="mt-0.5 text-sm text-muted-foreground">
-                    {window.isBlocked
-                      ? window.note ?? "Blocked"
-                      : `${window.startTime}–${window.endTime}`}
+                    {formatRange(w.starts_at, w.ends_at)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant={window.isBlocked ? "destructive" : "secondary"}>
-                    {window.isBlocked ? "Blocked" : "Open"}
-                  </Badge>
-                  <Button size="sm" variant="outline" disabled>
-                    Edit
-                  </Button>
+                  <Badge variant="secondary">Open</Badge>
+                  <RemoveButton id={w.id} kind="window" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+          {blockRows.map((b) => (
+            <Card key={b.id}>
+              <CardContent className="flex items-center justify-between gap-3 p-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{b.reason}</p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">
+                    {formatRange(b.starts_at, b.ends_at)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="destructive">Blocked</Badge>
+                  <RemoveButton id={b.id} kind="block" />
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+export default async function AdminAvailabilityPage() {
+  if (useFixtures) {
+    return (
+      <RequireAdmin>
+        <PageHeader
+          title="Availability"
+          description="Publish monthly open hours and block dates or hours for C205."
+          actions={
+            <Button size="sm" disabled>
+              Publish availability
+            </Button>
+          }
+        />
+        <PreviewNotice>
+          Fixture preview — set NEXT_PUBLIC_USE_FIXTURES=false to publish
+          and block real availability.
+        </PreviewNotice>
+
+        {fixtureAvailability.length === 0 ? (
+          <EmptyState
+            icon={DoorOpen}
+            title="No availability published"
+            description="Publish open hours for C205 so authorized users can submit requests."
+          />
+        ) : (
+          <div className="space-y-3">
+            {fixtureAvailability.map((window) => (
+              <Card key={window.id}>
+                <CardContent className="flex items-center justify-between gap-3 p-4">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{formatDate(window.date)}</p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                      {window.isBlocked
+                        ? (window.note ?? "Blocked")
+                        : `${window.startTime}–${window.endTime}`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={window.isBlocked ? "destructive" : "secondary"}>
+                      {window.isBlocked ? "Blocked" : "Open"}
+                    </Badge>
+                    <Button size="sm" variant="outline" disabled>
+                      Edit
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </RequireAdmin>
+    );
+  }
+
+  const profile = await getCurrentProfile();
+  const admin = isActiveAdmin(profile);
+  const supabase = await createClient();
+  const { data: room } = await supabase.from("rooms").select("id").eq("code", "C205").single();
+
+  return (
+    <RequireAdmin isAdmin={admin}>
+      <PageHeader
+        title="Availability"
+        description="Publish open hours and block dates or hours for C205."
+      />
+      {room ? (
+        <RealAvailability roomId={room.id} />
+      ) : (
+        <EmptyState icon={DoorOpen} title="Room not found" description="" />
       )}
     </RequireAdmin>
   );

@@ -82,11 +82,22 @@ update public.profiles set account_status = 'SUSPENDED', status_reason = 'Demo: 
   where id = '00000000-0000-0000-0000-00000000d004';
 
 -- Published availability: weekday business hours for the next two weeks.
+--
+-- `d::date + time '09:00'` alone produces a naive timestamp, which casts
+-- to timestamptz using the *session's* timezone — UTC for this database,
+-- not C205's own Asia/Baku (`rooms.timezone`). Without the explicit
+-- `at time zone 'Asia/Baku'` conversion below, "09:00-18:00" would
+-- actually be stored as 13:00-22:00 Baku time: internally consistent (every
+-- other naive timestamp in this file had the same bug, so nothing here
+-- ever conflicted with itself) but wrong versus what a real, timezone-
+-- aware client — like the actual request form, once Step 3b wired it up —
+-- means by "9am". That mismatch was real and user-visible, not
+-- theoretical: it's exactly what surfaced this bug.
 insert into public.availability_windows (room_id, starts_at, ends_at, label, published_by)
 select
   r.id,
-  d::date + time '09:00',
-  d::date + time '18:00',
+  (d::date + time '09:00') at time zone 'Asia/Baku',
+  (d::date + time '18:00') at time zone 'Asia/Baku',
   'Weekday hours',
   '00000000-0000-0000-0000-00000000d001'
 from public.rooms r
@@ -96,7 +107,9 @@ where r.code = 'C205'
 
 -- A blocked interval: a maintenance window this week.
 insert into public.blocked_intervals (room_id, starts_at, ends_at, reason, blocked_by)
-select r.id, current_date + interval '2 days 08:00', current_date + interval '2 days 09:00',
+select r.id,
+       (current_date + interval '2 days 08:00') at time zone 'Asia/Baku',
+       (current_date + interval '2 days 09:00') at time zone 'Asia/Baku',
        'Facilities maintenance', '00000000-0000-0000-0000-00000000d001'
 from public.rooms r where r.code = 'C205';
 
@@ -133,25 +146,36 @@ begin
   set local role authenticated;
   set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000d002","role":"authenticated"}';
 
-  -- Stays PENDING: nothing further happens to it.
+  -- Stays PENDING: nothing further happens to it. Same `at time zone
+  -- 'Asia/Baku'` conversion as the availability windows above, and for
+  -- the same reason — these must land inside those windows' *actual*
+  -- Baku hours, not whatever the session timezone happens to be.
   perform public.submit_request(
-    v_room_id, v_weekday_dates[1] + time '10:00', v_weekday_dates[1] + time '11:00',
+    v_room_id,
+    (v_weekday_dates[1] + time '10:00') at time zone 'Asia/Baku',
+    (v_weekday_dates[1] + time '11:00') at time zone 'Asia/Baku',
     'USG budget review', 6, null
   );
 
   v_approved_id := (public.submit_request(
-    v_room_id, v_weekday_dates[2] + time '14:00', v_weekday_dates[2] + time '15:30',
+    v_room_id,
+    (v_weekday_dates[2] + time '14:00') at time zone 'Asia/Baku',
+    (v_weekday_dates[2] + time '15:30') at time zone 'Asia/Baku',
     'Club fair planning', 10, null
   )).id;
   v_approved_version := 1;
 
   v_rejected_id := (public.submit_request(
-    v_room_id, v_weekday_dates[2] + time '14:30', v_weekday_dates[2] + time '15:00',
+    v_room_id,
+    (v_weekday_dates[2] + time '14:30') at time zone 'Asia/Baku',
+    (v_weekday_dates[2] + time '15:00') at time zone 'Asia/Baku',
     'Overlaps the club fair planning slot above', 3, null
   )).id;
 
   v_cancel_demo_id := (public.submit_request(
-    v_room_id, v_weekday_dates[3] + time '09:00', v_weekday_dates[3] + time '10:00',
+    v_room_id,
+    (v_weekday_dates[3] + time '09:00') at time zone 'Asia/Baku',
+    (v_weekday_dates[3] + time '10:00') at time zone 'Asia/Baku',
     'Study group', 4, null
   )).id;
 

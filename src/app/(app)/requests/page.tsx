@@ -7,6 +7,11 @@ import { EmptyState } from "@/components/states/empty-state";
 import { ReservationStatusBadge } from "@/components/status/status-badge";
 import { fixtureReservations, fixtureCurrentUser } from "@/lib/fixtures/data";
 import { useFixtures, ROOM_TIMEZONE } from "@/lib/config";
+import { createClient } from "@/lib/supabase/server";
+import { getVerifiedUser } from "@/lib/auth/dal";
+import { CancelReservationButton } from "@/components/requests/cancel-reservation-button";
+import type { ReservationRequest } from "@/lib/types";
+import type { Reservation } from "@/lib/booking/actions";
 
 function formatRange(startsAt: string, endsAt: string) {
   const start = new Date(startsAt);
@@ -25,10 +30,45 @@ function formatRange(startsAt: string, endsAt: string) {
   return `${dateFmt.format(start)} · ${timeFmt.format(start)}–${timeFmt.format(end)}`;
 }
 
-export default function MyRequestsPage() {
-  const requests = useFixtures
-    ? fixtureReservations.filter((r) => r.requesterId === fixtureCurrentUser.id)
-    : [];
+function fromReservationRow(r: Reservation): ReservationRequest {
+  return {
+    id: r.id,
+    requesterId: r.requester_id ?? "",
+    requesterName: r.requester_name,
+    startsAt: r.starts_at,
+    endsAt: r.ends_at,
+    purpose: r.purpose,
+    participantCount: r.participant_count,
+    status: r.status,
+    submittedAt: r.submitted_at,
+    decidedAt: r.decided_at,
+    decidedBy: r.decided_by,
+    rejectionReason: r.status === "REJECTED" ? r.decision_reason : null,
+    adminOverride: r.admin_override,
+    overrideReason: r.override_reason,
+  };
+}
+
+export default async function MyRequestsPage() {
+  let requests: ReservationRequest[] = [];
+  let versionById = new Map<string, number>();
+
+  if (useFixtures) {
+    requests = fixtureReservations.filter((r) => r.requesterId === fixtureCurrentUser.id);
+  } else {
+    const user = await getVerifiedUser();
+    if (user) {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("reservations")
+        .select("*")
+        .eq("requester_id", user.id)
+        .order("submitted_at", { ascending: false });
+      const rows = (data ?? []) as Reservation[];
+      requests = rows.map(fromReservationRow);
+      versionById = new Map(rows.map((r) => [r.id, r.version]));
+    }
+  }
 
   return (
     <div>
@@ -70,7 +110,15 @@ export default function MyRequestsPage() {
                     </p>
                   ) : null}
                 </div>
-                <ReservationStatusBadge status={request.status} />
+                <div className="flex shrink-0 items-center gap-2">
+                  <ReservationStatusBadge status={request.status} />
+                  {!useFixtures && request.status === "APPROVED" ? (
+                    <CancelReservationButton
+                      reservationId={request.id}
+                      expectedVersion={versionById.get(request.id) ?? 1}
+                    />
+                  ) : null}
+                </div>
               </CardContent>
             </Card>
           ))}
