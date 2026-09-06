@@ -5,16 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { fromZonedTime } from "date-fns-tz";
-import { ROOM_TIMEZONE } from "@/lib/config";
+import { localDateTimeToUtcIso as toUtcIso } from "@/lib/booking/timezone";
 import {
   createBlockedIntervalAction,
   publishAvailabilityWindowAction,
 } from "@/lib/booking/availability-actions";
-
-function toUtcIso(localDateTime: string): string {
-  return fromZonedTime(localDateTime, ROOM_TIMEZONE).toISOString();
-}
 
 export function PublishAvailabilityForm({ roomId }: { roomId: string }) {
   const [isPending, startTransition] = useTransition();

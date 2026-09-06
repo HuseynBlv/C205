@@ -152,11 +152,13 @@ select throws_ok(
   'room_occupancy has no requester_id column at all (structural anonymity, not just a filtered row)'
 );
 
-select throws_ok(
-  $$ select * from public.audit_events $$,
-  '42501'::char(5),
-  NULL,
-  'active (non-admin) user cannot select audit_events'
+-- Admins gained read access to audit_events in the admin-dashboard
+-- migration (audit_events_select_admin); a non-admin's SELECT is now
+-- permitted at the grant level but RLS filters every row away, so this
+-- returns an empty set rather than a permission error.
+select is(
+  (select count(*) from public.audit_events)::int, 0,
+  'active (non-admin) user sees no rows in audit_events (RLS, not a grant denial)'
 );
 
 select throws_ok(

@@ -504,6 +504,10 @@ export type Database = {
       }
     }
     Functions: {
+      _merge_adjacent_availability_windows: {
+        Args: { p_room_id: string }
+        Returns: undefined
+      }
       approve_request: {
         Args: {
           p_expected_version: number
@@ -710,6 +714,33 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      publish_availability_month: {
+        Args: {
+          p_end_time: string
+          p_excluded_dates?: string[]
+          p_label?: string
+          p_month: string
+          p_room_id: string
+          p_start_time: string
+          p_weekdays: number[]
+        }
+        Returns: {
+          created_at: string
+          ends_at: string
+          id: string
+          label: string | null
+          published_by: string | null
+          room_id: string
+          starts_at: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "availability_windows"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       publish_availability_window: {
         Args: {
           p_ends_at: string
@@ -894,6 +925,54 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "reservations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      update_availability_window: {
+        Args: {
+          p_ends_at: string
+          p_label?: string
+          p_starts_at: string
+          p_window_id: string
+        }
+        Returns: {
+          created_at: string
+          ends_at: string
+          id: string
+          label: string | null
+          published_by: string | null
+          room_id: string
+          starts_at: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "availability_windows"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      update_blocked_interval: {
+        Args: {
+          p_block_id: string
+          p_ends_at: string
+          p_reason: string
+          p_starts_at: string
+        }
+        Returns: {
+          blocked_by: string | null
+          created_at: string
+          ends_at: string
+          id: string
+          reason: string
+          room_id: string
+          starts_at: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "blocked_intervals"
           isOneToOne: true
           isSetofReturn: false
         }

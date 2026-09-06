@@ -3,6 +3,7 @@ import {
   CalendarDays,
   ClipboardList,
   DoorOpen,
+  History,
   ListChecks,
   Settings,
   SquarePlus,
@@ -63,6 +64,12 @@ export const adminNavItems: NavItem[] = [
     href: "/admin/settings",
     icon: Settings,
     description: "USG notification email and overrides",
+  },
+  {
+    label: "Audit",
+    href: "/admin/audit",
+    icon: History,
+    description: "Reservation and administrative history",
   },
 ];
 

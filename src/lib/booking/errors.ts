@@ -14,6 +14,16 @@ const STABLE_ERROR_MESSAGES: Record<string, string> = {
   STALE_RESERVATION_VERSION: "This request changed since you last loaded it. Refresh and try again.",
 };
 
+export type StableErrorCode = keyof typeof STABLE_ERROR_MESSAGES;
+
 export function mapBookingError(message: string): string {
   return STABLE_ERROR_MESSAGES[message] ?? message;
+}
+
+/** The raw code if `message` is one of the six stable identifiers,
+ * otherwise undefined — for client code that needs to branch on the
+ * exact error (e.g. offering an override), never on the mapped display
+ * text, which is free to reword. */
+export function stableErrorCode(message: string): StableErrorCode | undefined {
+  return message in STABLE_ERROR_MESSAGES ? (message as StableErrorCode) : undefined;
 }

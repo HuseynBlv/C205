@@ -634,17 +634,155 @@ to them yet (that's 3b, below).
       not implemented; the page reflects the latest state on each load/
       revalidation, not live-push)
 - [x] ~~Admin reservation review (approve/reject with reason)~~ — done in
-      Step 3b. Manual create/modify with override reason still have no UI
-      (Step 3a's database functions exist and are tested; see that step's
-      "Known gaps")
+      Step 3b, extended with reason collection and manual create/modify
+      UI in Step 4b below
 - [x] ~~Admin availability publishing/blocking, without silently cancelling
       approved reservations~~ — done in Step 3b (blocking never touches
       existing reservations, verified in Step 3a's function/tests)
 - [x] ~~Admin account management (authorize/reject/suspend/restore/remove)~~
       — done early, in Step 2b, since the auth step needed it to
       demonstrate authorization gating end-to-end
-- [ ] USG notification email setting persisted (UI still fixtures-only on
-      `admin/settings`)
+- [x] ~~USG notification email setting persisted~~ — done in Step 4b
+
+## Step 4b — Administrator dashboard ✅ (this step)
+
+Everything here was built on top of Step 3a's existing authorized
+backend operations, plus a small additive migration
+(`20260907100000_admin_dashboard.sql`) for the handful of admin
+operations that didn't exist yet: editing an existing availability
+window/block in place, publishing a whole month of recurring hours in
+one transactional call, and admin read access to the audit trail. No
+email sender was needed for any of this — the outbox rows
+`approve_request`/`reject_request`/`cancel_reservation`/
+`modify_reservation` already write were sufficient confirmation that
+"notify affected requesters" is wired as far as this step's scope goes.
+
+**New database (`20260907100000_admin_dashboard.sql`, 106 pgTAP
+assertions total, 18 new in `060_admin_dashboard.test.sql`):**
+- `audit_events_select_admin` RLS policy + grant — admins can finally
+  read the audit trail (still append-only for every role; this only
+  adds SELECT). A non-admin's SELECT is now permitted at the grant
+  level but returns zero rows (RLS), not a permission error — updated
+  `010_rls_and_grants.test.sql`'s assertion to match.
+- `_merge_adjacent_availability_windows(room_id)` — an internal helper
+  (not granted to any client role) that merges availability windows
+  overlapping or exactly touching each other into one row, leaving
+  windows with a real gap alone. Called at the end of
+  `publish_availability_window` (now `create or replace`d) and the new
+  `update_availability_window`. Blocks are never auto-merged — each
+  carries its own reason, and merging would silently lose one.
+- `update_availability_window(window_id, starts_at, ends_at, label)`
+  and `update_blocked_interval(block_id, starts_at, ends_at, reason)` —
+  admin-only, room-locked, audited (`AVAILABILITY_UPDATED`/
+  `BLOCK_UPDATED`), the same discipline as every Step 3a function.
+- `publish_availability_month(room_id, month, weekdays[], start_time,
+  end_time, excluded_dates[], label)` — one transactional call (one
+  room lock, one audit event `AVAILABILITY_MONTH_PUBLISHED`) for "open
+  these weekdays, these hours, this whole month, except these dates,"
+  rather than the app looping N separate single-window publishes (N
+  separate transactions). This is the first place anything reads
+  `rooms.timezone` (stored since Step 2a, never used until now) instead
+  of assuming Asia/Baku — it converts each matching calendar date's
+  wall-clock hours to `timestamptz` itself, server-side.
+
+**New UI:**
+- **Pending queue** (`admin/reservations/pending-queue.tsx`) — count,
+  a sort control (submitted oldest/newest, start time soonest/latest),
+  and a from/to date filter, all client-side over the already-fetched
+  admin data (small dataset at this scale).
+- **Request-details panel** (`components/admin/reservation-details-sheet.tsx`)
+  — a side sheet with requester identity, submission time, requested
+  interval, purpose, participants, status, version, decision info, and
+  override reason, opened via "View" from any row (pending or decided).
+- **Reject with an optional reason, Approve with an override flow**
+  (`admin/reservations/decision-buttons.tsx`) — reject opens a small
+  dialog for an optional reason; approve retries with `override: true`
+  and a required reason if the backend returns `OUTSIDE_AVAILABILITY`
+  or `ADVANCE_NOTICE_REQUIRED`, exactly mirroring `approve_request`'s
+  own rule that only those two ever accept an override reason,
+  `RESERVATION_CONFLICT` never does. A `STALE_RESERVATION_VERSION`
+  response (branched on the actual stable error code now returned
+  alongside the mapped message — see "Bugs found" below, not on
+  substring-matching display text) shows a "this changed since you
+  opened it — Refresh" prompt instead of retrying blindly.
+- **Admin cancel** (`AdminCancelButton`) — a reason dialog over the
+  existing `cancel_reservation` (already admin-callable), for APPROVED
+  reservations from either the queue or the details panel.
+- **Manual booking** (`admin/reservations/manual-booking-dialog.tsx`)
+  and **modify reservation** (`.../modify-reservation-dialog.tsx`) —
+  first real UI for `create_manual_reservation`/`modify_reservation`
+  (Step 3a functions, previously untouched by any screen), both with
+  the same override-reason retry flow as Approve.
+- **Monthly availability publishing**
+  (`admin/availability/monthly-publish-form.tsx`) — weekday checkboxes,
+  start/end time, a month picker, and an excluded-dates list, with a
+  live client-side preview (pure date arithmetic, no round-trip) of
+  every date it's about to publish before the admin confirms.
+- **Edit + impact preview** (`edit-window-dialog.tsx`,
+  `edit-block-dialog.tsx`, rewritten `remove-button.tsx`,
+  `impact-preview.tsx`) — editing or removing a window/block, or
+  removing one outright, shows which PENDING/APPROVED reservations
+  overlap the affected range before confirming, explicitly stating
+  that approved reservations keep their time regardless (`ImpactPreview`
+  queries `reservations` directly — admin RLS already grants full read
+  access, so no new RPC was needed for this).
+- **Audit log** (`admin/audit/`) — every `audit_events` row, most
+  recent first, with category tabs (Reservations/Availability/
+  Blocks/Accounts/Settings) and the actor's name joined in via
+  Supabase's foreign-key embedding (`actor:profiles(full_name)`).
+- **Settings** (`admin/settings`) — the USG notification email is now
+  a real form calling `set_usg_notification_email()` (built in Step
+  2a, never wired to anything until now), with the same email-format
+  check client-side as the database enforces server-side.
+- Two new shadcn-style primitives needed for all of the above and not
+  previously in the project: `components/ui/dialog.tsx` (centered
+  modal, built on the same Radix `Dialog` primitive `sheet.tsx` already
+  used for the side panel) and `components/ui/checkbox.tsx`.
+
+### Known gaps after this step
+
+- The pending queue's sort/filter and the audit log's category tabs
+  are client-side over the full already-fetched dataset — fine at this
+  app's scale (one room, realistically dozens of reservations/events at
+  once), would need server-side pagination well before that stops
+  being true.
+- `ImpactPreview` shows reservations overlapping a window/block's
+  *current* range, not a live recompute against whatever the admin is
+  actively typing into the edit form — good enough to inform a
+  shrink/removal decision, not a live "as you type" preview.
+- Notifications are still only queued (`email_outbox`), never sent —
+  unchanged from Step 3b/5's scope; this step didn't need sending to
+  be meaningful, since the outbox rows themselves are the evidence the
+  "notify affected requesters" requirement is wired as far as the
+  database goes.
+
+### Bugs found and fixed by actually running this step
+
+- **A real design flaw caught before it shipped, not after**: the
+  first draft of the approve/reject override and stale-version
+  handling branched on *substrings of the mapped, human-readable error
+  text* (e.g. `result.error.includes("published availability")`) —
+  which would silently break the moment anyone reworded
+  `STABLE_ERROR_MESSAGES` in `errors.ts`. Fixed before it became a
+  latent bug: `ActionResult` now carries an optional `code:
+  StableErrorCode` alongside the mapped `error` string
+  (`stableErrorCode()` in `errors.ts`), so client code branches on the
+  same six stable identifiers the database actually returns, never on
+  display copy.
+- A copy-paste bug in the first draft of `EditWindowDialog`: it passed
+  `w.starts_at.slice(0, 16)` back through `localDateTimeToUtcIso` for
+  the impact-preview query — double-converting an already-UTC
+  timestamp as if it were Baku local time, which would have shown the
+  wrong reservations as "affected." Caught in review before running
+  it; fixed by passing the stored UTC timestamps straight through
+  (`previewAvailabilityImpactAction` compares directly against the
+  stored `timestamptz` columns, no conversion needed at all).
+- Three more instances of the same React Compiler-era ESLint rules
+  from Step 3b's second pass, all fixed the same way (defer the
+  setState call into a callback rather than the effect's synchronous
+  top level): `impact-preview.tsx`'s data-fetching effect called
+  `setLoading(true)` synchronously; the fix wraps the whole effect body
+  in `Promise.resolve().then(...)`, same pattern as `request-form.tsx`.
 
 ## Step 5 — Notifications (not started)
 

@@ -6,3 +6,9 @@ import { ROOM_TIMEZONE } from "@/lib/config";
 export function roomLocalToUtcIso(date: string, time: string): string {
   return fromZonedTime(`${date}T${time}:00`, ROOM_TIMEZONE).toISOString();
 }
+
+/** Same conversion, for a single `datetime-local` input's value (already
+ * "YYYY-MM-DDTHH:mm") rather than separate date/time fields. */
+export function localDateTimeToUtcIso(localDateTime: string): string {
+  return fromZonedTime(localDateTime, ROOM_TIMEZONE).toISOString();
+}

@@ -2,16 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { mapBookingError } from "@/lib/booking/errors";
+import { mapBookingError, stableErrorCode, type StableErrorCode } from "@/lib/booking/errors";
 import type { Tables } from "@/lib/supabase/database.types";
 
 export type Reservation = Tables<"reservations">;
 
-type ActionResult<T = Reservation> = { ok: true; data: T } | { ok: false; error: string };
+type ActionResult<T = Reservation> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; code?: StableErrorCode };
 
 function toResult<T>(data: T | null, error: { message: string } | null): ActionResult<T> {
   if (error) {
-    return { ok: false, error: mapBookingError(error.message) };
+    return { ok: false, error: mapBookingError(error.message), code: stableErrorCode(error.message) };
   }
   return { ok: true, data: data as T };
 }
@@ -139,4 +141,43 @@ export async function getConflictWarnings(reservationId: string): Promise<string
     p_reservation_id: reservationId,
   });
   return data ?? [];
+}
+
+export async function modifyReservationAction(input: {
+  reservationId: string;
+  expectedVersion: number;
+  startsAt?: string;
+  endsAt?: string;
+  purpose?: string;
+  participantCount?: number;
+  override?: boolean;
+  overrideReason?: string;
+}): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("modify_reservation", {
+    p_reservation_id: input.reservationId,
+    p_expected_version: input.expectedVersion,
+    p_starts_at: input.startsAt,
+    p_ends_at: input.endsAt,
+    p_purpose: input.purpose,
+    p_participant_count: input.participantCount,
+    p_override: input.override,
+    p_override_reason: input.overrideReason,
+  });
+  const result = toResult(data, error);
+  if (result.ok) {
+    revalidatePath("/admin/reservations");
+    revalidatePath("/requests");
+    revalidatePath("/calendar");
+  }
+  return result;
+}
+
+/** Fresh copy of one reservation — used to show current values and force
+ * a new decision when a STALE_RESERVATION_VERSION error means whatever
+ * the admin was looking at has already changed. */
+export async function getReservationAction(reservationId: string): Promise<Reservation | null> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("reservations").select("*").eq("id", reservationId).single();
+  return data;
 }

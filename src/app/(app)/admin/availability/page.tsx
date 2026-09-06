@@ -16,6 +16,9 @@ import {
   CreateBlockForm,
   PublishAvailabilityForm,
 } from "@/app/(app)/admin/availability/availability-forms";
+import { MonthlyPublishForm } from "@/app/(app)/admin/availability/monthly-publish-form";
+import { EditWindowDialog } from "@/app/(app)/admin/availability/edit-window-dialog";
+import { EditBlockDialog } from "@/app/(app)/admin/availability/edit-block-dialog";
 import { RemoveButton } from "@/app/(app)/admin/availability/remove-button";
 import type { Tables } from "@/lib/supabase/database.types";
 
@@ -63,6 +66,8 @@ async function RealAvailability({ roomId }: { roomId: string }) {
 
   return (
     <div className="space-y-6">
+      <MonthlyPublishForm roomId={roomId} />
+
       <div className="grid gap-4 lg:grid-cols-2">
         <PublishAvailabilityForm roomId={roomId} />
         <CreateBlockForm roomId={roomId} />
@@ -89,7 +94,8 @@ async function RealAvailability({ roomId }: { roomId: string }) {
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary">Open</Badge>
-                  <RemoveButton id={w.id} kind="window" />
+                  <EditWindowDialog window={w} roomId={roomId} />
+                  <RemoveButton id={w.id} kind="window" roomId={roomId} startsAt={w.starts_at} endsAt={w.ends_at} />
                 </div>
               </CardContent>
             </Card>
@@ -105,7 +111,8 @@ async function RealAvailability({ roomId }: { roomId: string }) {
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant="destructive">Blocked</Badge>
-                  <RemoveButton id={b.id} kind="block" />
+                  <EditBlockDialog block={b} roomId={roomId} />
+                  <RemoveButton id={b.id} kind="block" roomId={roomId} startsAt={b.starts_at} endsAt={b.ends_at} />
                 </div>
               </CardContent>
             </Card>

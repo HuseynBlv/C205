@@ -424,6 +424,91 @@ Postgres function above, and the pages that use them.
   upgrading everything to 7.x (which pulls in a new
   `@full-ui/headless-calendar` peer dependency not worth taking on here).
 
+## Administrator dashboard (`supabase/migrations/20260907100000_admin_dashboard.sql`, `src/app/(app)/admin/`)
+
+The Step 3a/3b booking engine covered submit/approve/reject/cancel and
+single-window availability publish/block. This section covers what the
+admin dashboard needed on top of that: editing an existing window/block
+in place, publishing a whole month of recurring hours atomically, and
+letting an admin actually see the audit trail — plus the app-layer UI
+for functions that already existed but had no screen
+(`create_manual_reservation`, `modify_reservation`).
+
+**New database functions**, all following the exact same convention as
+Step 3a's (room-lock-first, SECURITY DEFINER, audited):
+
+- **`update_availability_window`** / **`update_blocked_interval`** —
+  admin-only edits. Editing a window also runs the merge step below;
+  editing a block never does (each block carries its own reason, and
+  merging two would silently lose one).
+- **`_merge_adjacent_availability_windows(room_id)`** — an internal
+  helper, not granted to any client role, called at the end of both
+  `publish_availability_window` (now `create or replace`d to call it)
+  and `update_availability_window`. It merges any windows for a room
+  that overlap or exactly touch into one row, and leaves windows with
+  a genuine gap alone. This is purely for tidiness of the *stored*
+  rows — `reservation_fits_availability`'s `range_agg`/`<@` containment
+  check already treats back-to-back windows as continuous for actual
+  booking purposes (see the "Booking engine" section above), so nothing
+  about correctness depended on this; it exists so an admin looking at
+  the availability list doesn't see fragmented duplicate-looking rows
+  after repeated publish/edit calls.
+- **`publish_availability_month(room_id, month, weekdays[],
+  start_time, end_time, excluded_dates[], label)`** — one transactional
+  call for "these weekdays, these hours, this whole month, minus these
+  dates," rather than the app looping N separate publishes (N separate
+  transactions, each independently interruptible). Locks the room once
+  for the whole batch and is the first function to read
+  `rooms.timezone` (a column that existed since Step 2a but nothing
+  ever queried) instead of assuming Asia/Baku, converting each matching
+  date's wall-clock hours to `timestamptz` itself.
+- **`audit_events_select_admin`** — an RLS policy (plus the matching
+  grant) letting admins finally read `audit_events`. The table stays
+  append-only for every role regardless (`audit_events_immutable()`
+  still blocks UPDATE/DELETE) — this only adds SELECT.
+
+**App layer:**
+
+- **Request-details panel** (`components/admin/reservation-details-sheet.tsx`)
+  — a side sheet (built on the same Radix `Dialog` primitive as
+  `Sheet`) showing every field the spec asked for (requester identity,
+  submission time, interval, purpose, participants, status, version,
+  decision/override info), with Approve/Reject/Cancel/Modify inline.
+- **Approve/reject/modify's override-and-stale-version handling**
+  (`admin/reservations/decision-buttons.tsx`,
+  `modify-reservation-dialog.tsx`) — every one of these mutations can
+  fail with `OUTSIDE_AVAILABILITY`/`ADVANCE_NOTICE_REQUIRED` (retry
+  with `override: true` and a required reason), `RESERVATION_CONFLICT`
+  (absolute, no retry), or `STALE_RESERVATION_VERSION` (the version the
+  admin has is already wrong — the only honest response is "refresh and
+  decide again," never a blind retry). Client code branches on
+  `ActionResult`'s `code: StableErrorCode` field
+  (`src/lib/booking/errors.ts`'s `stableErrorCode()`), not on the
+  mapped display text, so a copy change can never silently break this
+  branching (see "Bugs found" in IMPLEMENTATION_CHECKLIST.md's Step 4b
+  entry — the first draft got this wrong).
+- **`ImpactPreview`** (`admin/availability/impact-preview.tsx`) — shown
+  before confirming an edit, removal, or new block: which
+  PENDING/APPROVED reservations overlap the affected range, with
+  approved ones explicitly labeled "kept as-is." This is a plain query
+  against `reservations` (admin RLS already grants full read access),
+  not a new RPC. Closing availability never cancels anything — cancel
+  is a separate, explicit action everywhere in this app; the preview
+  exists so an admin knows who might need that separate action, not so
+  the UI can take it automatically.
+- **Monthly publish form** (`admin/availability/monthly-publish-form.tsx`)
+  — weekday checkboxes, an hour range, a month picker, and an
+  excluded-dates list, with a live preview computed entirely
+  client-side (plain date arithmetic — no round trip) before calling
+  `publish_availability_month`.
+- **Audit log** (`admin/audit/`) — every `audit_events` row, newest
+  first, with category tabs and the actor's name pulled in through
+  Supabase's foreign-key embedding (`actor:profiles(full_name)`).
+- **Settings** (`admin/settings`) — the USG notification email is now
+  a real form against `set_usg_notification_email()` (existed since
+  Step 2a, never had a UI), mirroring its server-side email-format
+  check on the client for immediate feedback.
+
 ## Fixtures vs. production (`src/lib/config.ts`)
 
 ```ts
@@ -551,20 +636,14 @@ relying on the browser's local zone. The eventual schema stores
 
 ## What's explicitly deferred
 
-Auth, account authorization, and the full booking engine (submit, approve,
-reject, cancel, availability publishing/blocking, the desktop calendar)
-are all wired to real Supabase now — both locally and on a linked hosted
-project (C205-prod — see IMPLEMENTATION_CHECKLIST.md's Step 2b for its own
-remaining gap, that its email templates can't be pushed until custom SMTP
-is configured). What's still deferred:
+Auth, account authorization, the full booking engine, and the
+administrator dashboard (queue, availability publishing/editing, manual
+booking, modification, cancellation, account management, audit history,
+settings) are all wired to real Supabase now — both locally and on a
+linked hosted project (C205-prod — see IMPLEMENTATION_CHECKLIST.md's Step
+2b for its own remaining gap, that its email templates can't be pushed
+until custom SMTP is configured). What's still deferred:
 
-- **`modify_reservation` and `create_manual_reservation` have no UI.**
-  Both database functions exist and are pgTAP-tested (Step 3a); wiring an
-  "edit this reservation" or "book directly on someone's behalf" admin
-  screen was deprioritized in Step 3b in favor of the core submit →
-  approve/reject → cancel loop.
-- **`admin/settings` (the USG notification email) is still fixtures-only.**
-  `set_usg_notification_email()` exists (Step 2a) but nothing calls it yet.
 - **Notifications don't send.** `submit_request`/`approve_request`/
   `reject_request`/`cancel_reservation`/`modify_reservation`/
   `create_manual_reservation` all write real jobs into `email_outbox`, but
@@ -574,22 +653,16 @@ is configured). What's still deferred:
 - **A requester can't withdraw their own PENDING request** — see Step
   3a's note on the tightened state machine (`PENDING → CANCELLED` isn't a
   valid transition; only an admin rejecting achieves the equivalent).
+- **The pending queue's sort/filter and the audit log's category tabs
+  are client-side over the full fetched dataset** — no server-side
+  pagination yet, fine at this app's current scale.
 
 None of this is faked in the UI; screens that would depend on it show a
 `PreviewNotice` or an honest empty state instead.
 
-The admin Approve/Reject buttons on `admin/reservations` are now clickable
-(previously `disabled`) so the decision motion and card layout can be
-previewed, but the resulting status change is local component state only —
-a reload reverts it, nothing is written anywhere, and the page's
-`PreviewNotice` says so explicitly. The illuminated `TimeSlotPicker` on
-`requests/new` is a nicer-looking input, not a real availability check —
-it doesn't yet know which hours are actually open or already reserved;
-that lands with the booking engine step alongside the 72-hour rule.
-
 The visual system described in "Design tokens" above (navy/orange,
 matching usg.az) replaced the earlier cinematic "Make Space" system in
-this same step — see git history for that prior design if it's ever
+the foundation step — see git history for that prior design if it's ever
 needed for reference. This was a visual-only change: no data model, auth,
 or booking logic was touched, and the fixtures-honesty pattern (preview
 notices, honest empty states) was kept exactly as it was.

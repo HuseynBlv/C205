@@ -14,11 +14,16 @@ administrator authorization); Step 3a implemented the authoritative
 scheduling operations — submit/approve/reject/cancel/modify a reservation,
 create one manually, and manage availability — as locked, transactional
 Postgres functions, verified against a real database including genuine
-concurrent approvals; this step (3b) wires the real app UI to those
-functions — submitting and cancelling a request, admin approve/reject with
-live conflict warnings, publishing availability and blocks, and a
-timezone-accurate read-only calendar — all verified end to end against a
-real local Supabase instance. See
+concurrent approvals; Step 3b wired the requester-facing app UI to those
+functions — submitting and cancelling a request, a live availability
+picker, status filters, and a timezone-accurate read-only calendar; this
+step (4b) builds the full administrator dashboard on top of the same
+functions — a sortable/filterable pending queue with conflict warnings, a
+request-details panel, approve/reject with reasons and policy overrides,
+manual booking and modification, monthly availability publishing with an
+affected-reservations preview, and reservation/administrative audit
+history — all verified end to end against a real local Supabase instance.
+See
 [`IMPLEMENTATION_CHECKLIST.md`](./IMPLEMENTATION_CHECKLIST.md) for exactly
 what works today and what's next, and
 [`ARCHITECTURE.md`](./ARCHITECTURE.md) for how it's put together.
