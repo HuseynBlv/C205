@@ -1,19 +1,31 @@
 "use client";
 
+import { useContext } from "react";
 import { ShieldAlert } from "lucide-react";
 import { EmptyState } from "@/components/states/empty-state";
-import { useFixtureSession } from "@/lib/fixtures/session-context";
+import { FixtureSessionContext } from "@/lib/fixtures/session-context";
 
 /**
- * Client-side guard so admin screens never render for a USER fixture
- * session. This is a UX convenience only — the real authorization boundary
- * is enforced server-side (Postgres row-level security + server actions) in
- * the database/auth step, per "enforce permissions beyond the interface."
+ * Renders `children` only for an admin. When `isAdmin` is passed (the real,
+ * non-fixture path — computed server-side from the caller's actual profile,
+ * never from client state), it's authoritative and the fixture context is
+ * never touched. Without it (the fixture-preview path), this falls back to
+ * the fixture role switcher. Either way, this is UX only — the real
+ * authorization boundary is Postgres RLS and the SECURITY DEFINER
+ * functions, which re-check on every request regardless of what this
+ * component renders.
  */
-export function RequireAdmin({ children }: { children: React.ReactNode }) {
-  const { user } = useFixtureSession();
+export function RequireAdmin({
+  children,
+  isAdmin,
+}: {
+  children: React.ReactNode;
+  isAdmin?: boolean;
+}) {
+  const fixtureSession = useContext(FixtureSessionContext);
+  const resolvedIsAdmin = isAdmin ?? fixtureSession?.user.role === "ADMIN";
 
-  if (user.role !== "ADMIN") {
+  if (!resolvedIsAdmin) {
     return (
       <EmptyState
         icon={ShieldAlert}

@@ -5,10 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { getCurrentProfile, isActiveAdmin } from "@/lib/auth/dal";
+import { useFixtures } from "@/lib/config";
 
-export default function AdminSettingsPage() {
+export default async function AdminSettingsPage() {
+  const profile = useFixtures ? null : await getCurrentProfile();
   return (
-    <RequireAdmin>
+    <RequireAdmin isAdmin={useFixtures ? undefined : isActiveAdmin(profile)}>
       <PageHeader title="Settings" description="Configure the USG notification email and overrides." />
       <PreviewNotice>
         Saving settings is connected once the notification outbox is

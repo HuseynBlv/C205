@@ -303,6 +303,7 @@ export type Database = {
           account_status: Database["public"]["Enums"]["account_status"]
           created_at: string
           email: string
+          email_verified_at: string | null
           full_name: string
           id: string
           role: Database["public"]["Enums"]["account_role"]
@@ -313,6 +314,7 @@ export type Database = {
           account_status?: Database["public"]["Enums"]["account_status"]
           created_at?: string
           email: string
+          email_verified_at?: string | null
           full_name: string
           id: string
           role?: Database["public"]["Enums"]["account_role"]
@@ -323,6 +325,7 @@ export type Database = {
           account_status?: Database["public"]["Enums"]["account_status"]
           created_at?: string
           email?: string
+          email_verified_at?: string | null
           full_name?: string
           id?: string
           role?: Database["public"]["Enums"]["account_role"]
@@ -498,6 +501,26 @@ export type Database = {
       }
     }
     Functions: {
+      bootstrap_first_admin: {
+        Args: never
+        Returns: {
+          account_status: Database["public"]["Enums"]["account_status"]
+          created_at: string
+          email: string
+          email_verified_at: string | null
+          full_name: string
+          id: string
+          role: Database["public"]["Enums"]["account_role"]
+          status_reason: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "profiles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       cancel_reservation: {
         Args: { p_reason?: string; p_reservation_id: string }
         Returns: {
@@ -580,6 +603,7 @@ export type Database = {
           account_status: Database["public"]["Enums"]["account_status"]
           created_at: string
           email: string
+          email_verified_at: string | null
           full_name: string
           id: string
           role: Database["public"]["Enums"]["account_role"]
@@ -602,6 +626,7 @@ export type Database = {
           account_status: Database["public"]["Enums"]["account_status"]
           created_at: string
           email: string
+          email_verified_at: string | null
           full_name: string
           id: string
           role: Database["public"]["Enums"]["account_role"]

@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import Link from "next/link";
+import { MailCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -15,7 +17,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PreviewNotice } from "@/components/shared/preview-notice";
+import { signUpAction } from "@/lib/auth/actions";
 
 const registerSchema = z
   .object({
@@ -32,23 +34,46 @@ const registerSchema = z
 type RegisterValues = z.infer<typeof registerSchema>;
 
 export function RegisterForm() {
+  const [submitted, setSubmitted] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<RegisterValues>({ resolver: zodResolver(registerSchema) });
 
-  const onSubmit = handleSubmit(async () => {
-    // Wired to Supabase Auth (with email verification) in a follow-up step.
-    await new Promise((r) => setTimeout(r, 400));
+  const onSubmit = handleSubmit(async (values) => {
+    setFormError(null);
+    const result = await signUpAction(values);
+    if (!result.ok) {
+      setFormError(result.error);
+      return;
+    }
+    setSubmitted(true);
   });
+
+  if (submitted) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 pt-6 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-accent">
+            <MailCheck className="size-6 text-accent-foreground" aria-hidden="true" />
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Check your email for a confirmation link. Verifying your email is
+            only the first step — an administrator still authorizes
+            reservation access separately.
+          </p>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/login">Back to sign in</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div>
-      <PreviewNotice>
-        Authentication isn&apos;t connected yet. This screen shows the intended
-        experience; a follow-up step wires it to Supabase Auth.
-      </PreviewNotice>
       <Card>
         <CardHeader>
           <CardTitle>Create an account</CardTitle>
@@ -57,8 +82,9 @@ export function RegisterForm() {
             administrator authorizes accounts separately.
           </CardDescription>
         </CardHeader>
-        <form onSubmit={onSubmit} noValidate>
+        <form onSubmit={onSubmit} method="post" noValidate>
           <CardContent className="space-y-4">
+            {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
             <div className="space-y-1.5">
               <Label htmlFor="fullName">Full name</Label>
               <Input

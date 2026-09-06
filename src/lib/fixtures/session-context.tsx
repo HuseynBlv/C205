@@ -22,7 +22,7 @@ interface FixtureSessionValue {
   setAccountStatus: (status: AccountStatus) => void;
 }
 
-const FixtureSessionContext = createContext<FixtureSessionValue | null>(null);
+export const FixtureSessionContext = createContext<FixtureSessionValue | null>(null);
 
 export function FixtureSessionProvider({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<UserRole>("USER");

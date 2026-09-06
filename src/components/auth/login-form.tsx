@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -15,7 +16,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PreviewNotice } from "@/components/shared/preview-notice";
+import { signInAction } from "@/lib/auth/actions";
 
 const loginSchema = z.object({
   email: z.email("Enter a valid university email address."),
@@ -25,30 +26,32 @@ const loginSchema = z.object({
 type LoginValues = z.infer<typeof loginSchema>;
 
 export function LoginForm() {
+  const [formError, setFormError] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<LoginValues>({ resolver: zodResolver(loginSchema) });
 
-  const onSubmit = handleSubmit(async () => {
-    // Wired to Supabase Auth in a follow-up step.
-    await new Promise((r) => setTimeout(r, 400));
+  const onSubmit = handleSubmit(async (values) => {
+    setFormError(null);
+    const result = await signInAction(values);
+    // A successful sign-in redirects server-side and never returns here.
+    if (!result.ok) {
+      setFormError(result.error);
+    }
   });
 
   return (
     <div>
-      <PreviewNotice>
-        Authentication isn&apos;t connected yet. This screen shows the intended
-        experience; a follow-up step wires it to Supabase Auth.
-      </PreviewNotice>
       <Card>
         <CardHeader>
           <CardTitle>Sign in</CardTitle>
           <CardDescription>Use your authorized university account.</CardDescription>
         </CardHeader>
-        <form onSubmit={onSubmit} noValidate>
+        <form onSubmit={onSubmit} method="post" noValidate>
           <CardContent className="space-y-4">
+            {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
             <div className="space-y-1.5">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -75,6 +78,11 @@ export function LoginForm() {
               {errors.password ? (
                 <p className="text-xs text-destructive">{errors.password.message}</p>
               ) : null}
+              <p className="text-right text-xs">
+                <Link href="/forgot-password" className="text-muted-foreground hover:text-primary hover:underline">
+                  Forgot password?
+                </Link>
+              </p>
             </div>
           </CardContent>
           <CardFooter className="flex-col items-stretch gap-3">

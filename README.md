@@ -7,32 +7,43 @@ request for **C205** → it sits **Pending** → USG reviews it → **Approved**
 never confirms a booking.
 
 This repository is being built in steps. The foundation step delivered the
-Next.js app, design system, shell, and navigation; this step delivers the
-**Supabase database foundation** — version-controlled migrations, RLS,
-privileged functions, and tests — with no app code wired to it yet. See
-[`IMPLEMENTATION_CHECKLIST.md`](./IMPLEMENTATION_CHECKLIST.md) for exactly
-what works today and what's next, and
+Next.js app, design system, shell, and navigation; Step 2a added the
+Supabase database foundation (migrations, RLS, privileged functions); this
+step (2b) wires real Supabase Auth end to end — registration, login,
+logout, email verification, password reset, and administrator
+authorization. See [`IMPLEMENTATION_CHECKLIST.md`](./IMPLEMENTATION_CHECKLIST.md)
+for exactly what works today and what's next, and
 [`ARCHITECTURE.md`](./ARCHITECTURE.md) for how it's put together.
 
 ## Stack
 
 Next.js (App Router, TypeScript) · Tailwind CSS v4 + shadcn/ui (Radix) ·
-React Hook Form + Zod · Supabase Postgres/Auth (schema exists, app not yet
-wired to it) · FullCalendar (installed, not yet wired) · one deployable
-app, no separate backend.
+React Hook Form + Zod · Supabase Postgres + Auth (`@supabase/ssr`, fully
+wired) · FullCalendar (installed, not yet wired) · one deployable app, no
+separate backend.
 
 ## Getting started
 
+Requires [Docker](https://www.docker.com/) running (for the local Supabase
+stack).
+
 ```bash
-npm install
+npm install                 # also installs the Supabase CLI as a dev dependency
+npm run db:start             # supabase start — pulls images, applies migrations, seeds
+cp .env.example .env.local   # then fill in the values db:start printed (see below)
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). No environment
-variables are required for this step — every screen renders fixture data in
-development and an honest "not configured" state in production. Copy
-[`.env.example`](./.env.example) to `.env.local` if you want to preview
-turning fixtures off locally.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000) — use `127.0.0.1`, not
+`localhost`: that's what `supabase/config.toml`'s `site_url` is set to, and
+email confirmation/recovery links are only valid against that exact origin
+locally.
+
+Without a `.env.local`, every screen still renders fixture data in
+development and an honest "not configured" state in production — auth
+itself needs real Supabase, though. Set `NEXT_PUBLIC_USE_FIXTURES=false`
+in `.env.local` once Supabase is running to see the real thing instead of
+fixtures.
 
 While developing, a flask-icon button in the bottom-right corner lets you
 switch between `USER`/`ADMIN` roles and every account status (`PENDING`,
@@ -40,35 +51,58 @@ switch between `USER`/`ADMIN` roles and every account status (`PENDING`,
 screens without a backend. There's also a component/state gallery at
 `/dev/states` (only reachable in development).
 
-## Database (Supabase)
+## Database and Auth (Supabase)
 
 The schema lives in `supabase/migrations/`, dev seed data in
-`supabase/seed.sql`, and pgTAP tests in `supabase/tests/database/`. This
-step created them and verified them against a local Supabase/Postgres
-instance (all 36 pgTAP assertions pass), but no app code is wired to them
-yet — see the walkthrough below.
+`supabase/seed.sql`, pgTAP tests in `supabase/tests/database/`, and the
+custom email templates auth needs in `supabase/templates/`. All of it is
+wired into the app now — registration, login, logout, email verification,
+password reset, and admin account authorization are real.
 
-### Local database (for development)
+### Local (for development)
 
 Requires [Docker](https://www.docker.com/) running.
 
 ```bash
 npm install                # installs the Supabase CLI as a dev dependency
 npm run db:start            # supabase start — pulls images, applies
-                             #   migrations, runs seed.sql
+                             #   migrations, seeds, loads email templates
 npm run db:test              # supabase test db — runs the pgTAP tests
 ```
 
-`db:start` prints a local API URL, anon key, and service role key — put
-those in `.env.local` (copy from `.env.example`) to eventually point the
-app at it. Demo accounts from `seed.sql` (password `devpassword123`,
-local-only, never used in production): `admin@c205.local` (ADMIN/ACTIVE),
-`active@c205.local` (ACTIVE), `pending@c205.local` (PENDING),
-`suspended@c205.local` (SUSPENDED).
+`db:start` prints a local API URL and anon key — put those in
+`.env.local` (copy from `.env.example`) along with an `ADMIN_BOOTSTRAP_SECRET`
+of your choosing. Demo accounts from `seed.sql` (password
+`devpassword123`, local-only, never used in production):
+`admin@c205.local` (ADMIN/ACTIVE), `active@c205.local` (ACTIVE),
+`pending@c205.local` (PENDING), `suspended@c205.local` (SUSPENDED).
+
+Confirmation and password-reset emails don't go anywhere real locally —
+open [Mailpit](http://127.0.0.1:54324) to read them and click the link.
 
 Changed a migration? `npm run db:reset` re-applies every migration plus
 the seed from scratch. Changed the schema? `npm run db:types` regenerates
 `src/lib/supabase/database.types.ts` from the running local database.
+Changed `supabase/config.toml` (including the email templates)? Restart
+the stack (`npx supabase stop && npm run db:start`) — `supabase start`
+alone won't pick up config changes on containers that are already running.
+
+### Becoming an administrator
+
+No administrator can register themselves through `/register` — every new
+account is `USER`/`PENDING` regardless of what it claims. To get the
+first admin:
+
+1. Register normally and verify your email.
+2. Visit `/admin-setup` (not linked from anywhere in the UI) and enter the
+   `ADMIN_BOOTSTRAP_SECRET` from your environment.
+
+This only works once — `bootstrap_first_admin()` refuses to run again
+once any active administrator exists, even under a concurrent double
+submit. After that, authorize further admins from `/admin/accounts` like
+any other account (Authorize, then use `set_user_role` from the SQL
+editor if you need ADMIN specifically — there's no UI for role changes
+yet, only status changes).
 
 ### Hosted project (for staging/production)
 
@@ -77,14 +111,26 @@ the seed from scratch. Changed the schema? `npm run db:types` regenerates
 3. `npx supabase db push` to apply `supabase/migrations/` to it. **Never
    run `supabase/seed.sql` against this project** — it contains
    development-only demo accounts and is not part of `db push`.
-4. Once an admin account exists for real (sign up normally, then run
-   `select public.set_user_role('<their-id>', 'ADMIN');` once from the
-   SQL editor as the project owner — this is the one time a direct write
-   is appropriate, since no admin exists yet to call the function through
-   the app), use `set_usg_notification_email()` to replace the seeded
-   placeholder address.
-5. Put that project's URL/anon key/service role key in your deployment's
-   environment variables (see `.env.example`) — never commit them.
+4. **Configure custom email templates** (Authentication → Email Templates
+   in the dashboard) matching `supabase/templates/confirmation.html` and
+   `recovery.html`. This is not optional: without it, confirmation/
+   recovery links use Supabase's legacy `/verify` endpoint and an
+   implicit-flow URL fragment that this app's `/auth/confirm` route never
+   sees, so verification would appear to silently fail.
+5. Set `site_url` and the redirect URL allow-list to your real domain, and
+   configure SMTP for production-volume sending (the built-in sender is
+   for development only).
+6. Put that project's URL/anon key and a real, random
+   `ADMIN_BOOTSTRAP_SECRET` in your deployment's environment variables
+   (see `.env.example`) — never commit them. `SUPABASE_SERVICE_ROLE_KEY`
+   isn't currently used by any app code, but keep it out of any
+   client-reachable file if you do add a use for it later.
+7. Use `/admin-setup` (see above) to create the first administrator, then
+   `set_usg_notification_email()` to replace the seeded placeholder
+   address.
+8. Consider enabling a CAPTCHA (hCaptcha/Turnstile) on the auth forms and
+   reviewing `auth.rate_limit` for your expected traffic — this step relies
+   on Supabase Auth's default abuse protection, not anything custom.
 
 ## Scripts
 

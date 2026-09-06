@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/states/empty-state";
 import { fixtureAvailability } from "@/lib/fixtures/data";
 import { useFixtures } from "@/lib/config";
+import { getCurrentProfile, isActiveAdmin } from "@/lib/auth/dal";
 
 function formatDate(dateStr: string) {
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-US", {
@@ -17,11 +18,12 @@ function formatDate(dateStr: string) {
   });
 }
 
-export default function AdminAvailabilityPage() {
+export default async function AdminAvailabilityPage() {
   const availability = useFixtures ? fixtureAvailability : [];
+  const profile = useFixtures ? null : await getCurrentProfile();
 
   return (
-    <RequireAdmin>
+    <RequireAdmin isAdmin={useFixtures ? undefined : isActiveAdmin(profile)}>
       <PageHeader
         title="Availability"
         description="Publish monthly open hours and block dates or hours for C205."

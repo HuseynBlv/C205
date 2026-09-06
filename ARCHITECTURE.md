@@ -10,8 +10,8 @@ alongside the code, not written once and left stale.
 | Concern | Choice |
 |---|---|
 | Framework | Next.js (App Router), TypeScript, single deployable app |
-| Database | Supabase Postgres — schema, RLS, and functions exist (`supabase/migrations`); no app code consumes them yet |
-| Auth | Supabase Auth (identities exist via `auth.users`/`profiles`; login/register UI still not wired) |
+| Database | Supabase Postgres — schema, RLS, and functions (`supabase/migrations`); real reads/writes for auth and account authorization, reservations still pending Step 3 |
+| Auth | Supabase Auth via `@supabase/ssr`, fully wired: registration, login, logout, email verification, password reset, admin authorization |
 | Styling | Tailwind CSS v4 + shadcn/ui (Radix primitives) |
 | Forms | React Hook Form + Zod |
 | Desktop scheduling | FullCalendar (deps installed, not yet wired) |
@@ -144,6 +144,104 @@ instance (`npm run db:start && npm run db:reset && npm run db:test`) — see
 surfaced (an RLS recursion in the `is_active_*` helpers, and a pgtap
 argument-order gotcha in how these files originally called `throws_ok`).
 
+A follow-up migration (`20260905130000_auth_hardening.sql`, Step 2b) added:
+a `profiles.email_verified_at` column mirrored from
+`auth.users.email_confirmed_at` by a trigger, so RLS policies can gate on
+"is this email verified" without needing a grant on the `auth` schema;
+`is_active_user`/`is_active_admin` and the reservation functions now also
+require it; last-active-administrator protection in `set_account_status`/
+`set_user_role` (a `pg_advisory_xact_lock` shared across every path that
+can change the active-admin count, so two concurrent attempts to remove
+the last two admins can't both succeed); and `bootstrap_first_admin()`,
+the one-time, self-only, zero-admins-required first-administrator setup
+function. `supabase/tests/database/040_auth_hardening.test.sql` covers all
+of it, including a live proof that a status change takes effect against
+an *already-simulated* session with unchanged JWT claims — see
+[[project-c205]] for the bugs this step's actual (non-pgTAP) testing found
+on top of that.
+
+## Authentication (`src/lib/auth/`, `src/proxy.ts`, `src/lib/supabase/`)
+
+Real Supabase Auth via `@supabase/ssr`, following its current documented
+SSR pattern rather than the older `auth-helpers` packages:
+
+- **`src/lib/supabase/client.ts`** — browser client (anon key only).
+- **`src/lib/supabase/server.ts`** — server client for Server Components/
+  Actions/Route Handlers, built from `next/headers` cookies with the
+  `getAll`/`setAll` interface `@supabase/ssr` expects.
+- **`src/proxy.ts`** + **`src/lib/supabase/proxy.ts`** (`updateSession`) —
+  Next.js 16 renamed `middleware.ts` to `proxy.ts` (see AGENTS.md); this
+  refreshes the auth cookie on every request (Server Components can't
+  write cookies themselves) and does one *optimistic* redirect-if-signed-
+  out check for `/calendar`, `/requests`, `/admin*`. Per Next's own
+  guidance this is not a security boundary — a Server Action reachable
+  outside the matcher must still protect itself, which is why every
+  action in `src/lib/auth/actions.ts` and `src/lib/admin/actions.ts` also
+  re-verifies independently.
+- **`src/lib/auth/dal.ts`** — the single Data Access Layer function that
+  decides identity: `getVerifiedUser()` calls `supabase.auth.getClaims()`,
+  never `getSession()`. `getClaims()` cryptographically verifies the JWT
+  (locally via the project's JWKS once it uses asymmetric signing keys;
+  this project's local/HS256 setup makes it transparently fall back to
+  the same Auth-server round trip `getUser()` makes) — either way the
+  token is genuinely re-checked, not just decoded from a cookie a client
+  could have tampered with. `getCurrentProfile()` then does a live
+  `profiles` read — role/account_status/email_verified_at are **never**
+  cached across requests or embedded in a custom JWT claim, which is
+  exactly what makes a suspension or role change take effect on the very
+  next request without needing the existing token to expire or be
+  reissued. Both are wrapped in React's `cache()` to dedupe within one
+  render pass.
+- **`src/lib/auth/actions.ts`** — `signUpAction`, `signInAction`,
+  `signOutAction`, `requestPasswordResetAction`, `updatePasswordAction`,
+  `resendVerificationEmailAction`. All Server Actions, which get Next's
+  built-in CSRF protection for free (the framework compares the request's
+  `Origin` to `Host` and rejects a mismatch before the action body runs) —
+  this is why every mutation in this app is a Server Action rather than a
+  hand-rolled Route Handler, and no separate CSRF token machinery exists.
+- **`src/app/auth/confirm/route.ts`** — the one Route Handler in the auth
+  flow, because email links are GETs. Handles both signup confirmation
+  and password recovery via the current `token_hash` + `type` pattern
+  (`supabase.auth.verifyOtp`), then redirects with an explicit
+  `Cache-Control: private, no-store` header. A GET performing a state
+  change here is fine, unlike a typical CSRF-vulnerable GET: the
+  unforgeable secret *is* the token_hash in the URL, not an ambient
+  cookie, so there's nothing for a forged cross-site request to reuse. See
+  `supabase/templates/*.html` and IMPLEMENTATION_CHECKLIST.md for why
+  custom email templates are required for this route to ever receive a
+  `token_hash` at all (the CLI's default template uses GoTrue's own
+  legacy `/verify` endpoint and an implicit-flow URL fragment instead).
+- **Account-status gating** (`src/components/layout/real-account-status-gate.tsx`,
+  used from `src/app/(app)/layout.tsx` when fixtures are off) — two gates,
+  both re-derived from the live profile on every request, checked in this
+  order: email verification first (an `EmailVerificationRequiredState`,
+  with a resend action), then `account_status` (`PendingAuthorizationState`
+  for PENDING; `SuspendedAccountState` for SUSPENDED/REJECTED/REMOVED;
+  otherwise the real `AppShell`). These are the same presentational
+  components the Step 1 fixtures preview already used — only the data
+  source changed, from `FixtureSessionProvider`'s client state to a
+  server-rendered live database read.
+- **`src/app/admin-setup/`** — the controlled, idempotent
+  first-administrator setup flow. Not linked from any navigation. Requires
+  (1) a signed-in, email-verified caller, (2) a server-only
+  `ADMIN_BOOTSTRAP_SECRET` compared with `crypto.timingSafeEqual`, and (3)
+  `bootstrap_first_admin()`'s own database-level check that zero active
+  admins currently exist — so even if the app-layer secret were somehow
+  bypassed, the database still refuses to create a second "first" admin,
+  concurrently or otherwise.
+- **`src/lib/admin/actions.ts`** — `authorizeAccountAction`,
+  `rejectAccountAction`, `suspendAccountAction`, `restoreAccountAction`,
+  `removeAccountAction`, each a thin wrapper around the
+  `set_account_status` RPC. `src/app/(app)/admin/accounts/page.tsx` lists
+  every profile (RLS already limits this to admins) and renders one of
+  these per row as a plain `<form action={...}>` — no client JS needed.
+- **`src/components/admin/require-admin.tsx`** — takes an optional
+  `isAdmin` prop computed server-side from a real profile; when omitted it
+  falls back to the fixture role-switcher context. `admin/reservations`,
+  `admin/availability`, and `admin/settings` pass a real `isAdmin` too now
+  (their underlying data is still Step 3/4 fixtures-only) — see
+  IMPLEMENTATION_CHECKLIST.md.
+
 ## Fixtures vs. production (`src/lib/config.ts`)
 
 ```ts
@@ -272,18 +370,19 @@ relying on the browser's local zone. The eventual schema stores
 ## What's explicitly deferred
 
 The database schema, RLS, and privileged functions exist
-(`supabase/migrations/`), but no live Supabase project has been created
-from them yet, and no app code calls Supabase — `useFixtures` still
-governs every screen. Supabase Auth is not wired into the login/register
-UI; those screens are still visual previews only. No Next.js server
-actions exist yet to call `submit_reservation`/`decide_reservation`/
-`cancel_reservation`. The booking form on
-`requests/new` validates shape only (required fields, end after start,
-positive participant count) — the 72-hour/overlap/availability rules,
-FullCalendar wiring, and the real mobile time-list interaction are explicit
-follow-up work. Notifications and the email outbox don't exist yet. None of
-this is faked in the UI; screens that would depend on it show a
-`PreviewNotice` or an honest empty state instead.
+(`supabase/migrations/`), and auth + account authorization are fully wired
+to a real (so far local-only — no hosted project exists yet) Supabase
+instance. What's still deferred: no Next.js server actions exist yet to
+call `submit_reservation`/`decide_reservation`/`cancel_reservation`, so
+`useFixtures` still governs the calendar/requests/admin-reservations
+screens' actual data (their auth *gating* is real; their *content* isn't
+yet). The booking form on `requests/new` validates shape only (required
+fields, end after start, positive participant count) — the
+72-hour/overlap/availability rules, FullCalendar wiring, and the real
+mobile time-list interaction are explicit follow-up work. Notifications
+and the email outbox don't exist yet (the `email_outbox` table does, but
+nothing drains it). None of this is faked in the UI; screens that would
+depend on it show a `PreviewNotice` or an honest empty state instead.
 
 The admin Approve/Reject buttons on `admin/reservations` are now clickable
 (previously `disabled`) so the decision motion and card layout can be

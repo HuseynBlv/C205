@@ -172,11 +172,137 @@ prior "not executed" gap mattered. Running it surfaced three:
 - Manual admin "create/modify reservation on someone's behalf" is not
   implemented (still Step 4 scope, per the original plan).
 
-## Step 2b — Auth wiring and account authorization (not started)
+## Step 2b — Auth wiring and account authorization ✅ (this step)
 
-- [ ] Supabase Auth wiring: registration, email verification, session
-- [ ] Admin authorization flow (PENDING → ACTIVE) replacing the fixture gate
-- [ ] Replace `useFixtures` reads with real data fetching
+- [x] Registration, login, logout, email verification, and password reset —
+      all real Supabase Auth, via `src/lib/auth/actions.ts` (Server Actions)
+      and `src/app/auth/confirm/route.ts` (the `token_hash`/`verifyOtp`
+      link handler both flows share)
+- [x] Custom local email templates (`supabase/templates/*.html`) so
+      confirmation/recovery links point at `/auth/confirm` with a
+      `token_hash` instead of GoTrue's own legacy `/verify` endpoint — see
+      "Known gaps" below, this is also required hosted configuration
+- [x] Server-side identity verification via `supabase.auth.getClaims()`
+      (never `getSession()`) in a single Data Access Layer
+      (`src/lib/auth/dal.ts`), `cache()`-wrapped per request
+- [x] Two independent access gates, both re-derived from a live `profiles`
+      read on every request, never from the JWT: email verification, then
+      administrator authorization (`RealAccountStatusGate`) — PENDING,
+      SUSPENDED, REJECTED, REMOVED, and an unverified-email state each get
+      their own screen; ACTIVE + verified reaches the real app shell
+- [x] `src/proxy.ts` (Next.js 16 renamed `middleware.ts` → `proxy.ts`, see
+      AGENTS.md) refreshes the session cookie every request and redirects
+      signed-out visitors away from `/calendar`, `/requests`, `/admin*` —
+      an optimistic check only; the real boundary is the DAL + database
+- [x] Admin account authorization UI (`/admin/accounts`) wired to real
+      `set_account_status` calls: Authorize, Reject, Suspend, Restore,
+      Remove — moved out of Step 4 into this step, since "administrator
+      authorization" is exactly what this step's gating model needs to
+      demonstrate end-to-end
+- [x] Controlled, idempotent first-administrator bootstrap: `/admin-setup`
+      (unlinked from navigation) + `bootstrap_first_admin()` — requires a
+      verified caller, a server-only `ADMIN_BOOTSTRAP_SECRET`, and the
+      database's own zero-admins check (same advisory-lock guard as
+      last-admin protection, so two simultaneous bootstrap attempts can't
+      both succeed)
+- [x] Last-active-administrator protection against removal/suspension,
+      including concurrent attempts (`pg_advisory_xact_lock`, added in
+      Step 2a's follow-up migration — see that step's entry below)
+- [x] CSRF/origin protection: every mutation is a Next.js Server Action,
+      which enforces its own Origin-vs-Host check before the action body
+      ever runs (framework-level, not something this app implements
+      itself) — see Next's own `data-security` guide
+- [x] `Cache-Control: private, no-store` on every session-bearing response
+      (proxy.ts for the app/auth pages, `/auth/confirm`'s route handler
+      directly) so a shared cache can never serve one session's response
+      to a different visitor
+- [x] Safe, non-enumerating messages: signup and password-reset both
+      return the same generic confirmation regardless of whether the email
+      already has an account (matches Supabase's own anti-enumeration
+      behavior, deliberately not overridden)
+- [x] Privileged credentials never reach browser code —
+      `SUPABASE_SERVICE_ROLE_KEY` is unused by any app code (every
+      privileged write goes through a SECURITY DEFINER function instead);
+      confirmed with a repo-wide grep, not just by inspection
+- [x] All hardened against a real, running local Supabase instance — not
+      just pgTAP: manually verified signup → Mailpit → confirm →
+      pending-authorization screen → admin authorizes → real access →
+      admin suspends → **the same still-valid session cookie loses access
+      on its very next request** → password reset via Mailpit → old
+      password rejected, new one works → privilege-escalation and
+      last-admin RPC calls rejected — see "Bugs found" below for what that
+      surfaced
+
+### Bugs found and fixed by actually running this step
+
+- **Seeded demo accounts couldn't sign in at all.** `supabase/seed.sql`
+  inserted `auth.users` rows without `confirmation_token`,
+  `recovery_token`, `email_change_token_new`, or `email_change` — those
+  four columns have no database default (unlike `phone_change` and
+  friends, which default to `''`), so GoTrue's own query left them `NULL`
+  and its Go code failed with `converting NULL to string is unsupported`
+  on every login attempt. This existed since Step 2a but was never caught
+  because that step only ever tested via pgTAP, never a real sign-in.
+  Fixed by explicitly inserting `''` for all four.
+- **Confirmation/recovery links didn't reach `/auth/confirm` at all.**
+  Without a custom email template, the local Supabase CLI's default
+  template uses GoTrue's own hosted `/auth/v1/verify?token=...` endpoint
+  (the older implicit-flow link), which verifies the token itself and
+  redirects with the session in a URL **fragment** — never sent to a
+  server, so `/auth/confirm`'s route handler (built for the current
+  `token_hash` query-param pattern) never saw it. Fixed with custom
+  `supabase/templates/confirmation.html` / `recovery.html` wired up in
+  `config.toml`. **A hosted project needs the equivalent set in the
+  dashboard** (Authentication → Email Templates) — see "Known gaps."
+  Caught only by actually clicking (well, curling) a real email link.
+- **A pre-hydration form submit leaked the password into the URL.** The
+  first click on a login/register button before React finished hydrating
+  fell back to the browser's native form submission — a plain GET with
+  every field, including the password, appended to the URL (and so into
+  browser history and any server access log). Fixed by adding
+  `method="post"` to all four auth `<form>` elements, so even that
+  fallback path never puts credentials in a URL.
+
+### Known gaps after this step
+
+- **Hosted-project configuration required, not yet done anywhere** (no
+  hosted project exists — see [[project-c205]]):
+  - Custom email templates (Authentication → Email Templates in the
+    dashboard) matching `supabase/templates/confirmation.html` /
+    `recovery.html`, or confirmation/recovery links will silently fall
+    back to the broken legacy flow described above.
+  - `site_url` and redirect URL allow-list matching the real domain.
+  - SMTP configured for production-volume sending (Supabase's built-in
+    sender is rate-limited and meant for development only).
+  - A real, random `ADMIN_BOOTSTRAP_SECRET` (never the local placeholder)
+    in the hosting platform's environment variables.
+  - Auth rate limits (`auth.rate_limit` — dashboard-only for hosted
+    projects) reviewed for production traffic; local `config.toml` uses
+    the CLI's defaults, which this step did not change.
+  - No CAPTCHA (hCaptcha/Turnstile) on the auth forms — Supabase Auth
+    supports this natively, but it needs external site/secret keys this
+    environment doesn't have. Worth adding before any public launch.
+- `/admin-setup` is unlinked from navigation but still a reachable URL to
+  anyone who knows it — acceptable because both gates (the secret *and*
+  the database's zero-admins check) are still required, but a determined
+  operator may prefer removing the route entirely after the first admin
+  exists.
+- Login attempts against an email with unconfirmed status surface
+  Supabase's own "Email not confirmed" error, which does confirm the
+  account exists (a minor enumeration signal, gated behind also knowing
+  the correct password) — accepted as standard Supabase behavior, not
+  patched around.
+- `next.config.ts` gained `allowedDevOrigins: ["127.0.0.1"]` — dev-only
+  (Next.js blocks cross-origin HMR requests by default; this repo's
+  Supabase `site_url` is `127.0.0.1`, not `localhost`), no effect on a
+  production build.
+- Everything from Step 2a's gaps list that this step didn't touch still
+  applies (no hosted project, `app_settings` placeholder email, etc.) —
+  see that entry below.
+- Admin reservation review, availability publishing, and settings pages
+  are still fixtures-only past their existing admin gate (now real,
+  rather than fixture-driven, but the underlying data is still Step 3/4
+  scope) — see Step 3/4 below.
 
 ## Step 3 — Booking engine (not started)
 
@@ -195,7 +321,9 @@ prior "not executed" gap mattered. Running it surfaced three:
       create/modify/cancel, override with reason
 - [ ] Admin availability publishing/blocking, without silently cancelling
       approved reservations
-- [ ] Admin account management (authorize/reject/suspend/restore/remove)
+- [x] ~~Admin account management (authorize/reject/suspend/restore/remove)~~
+      — done early, in Step 2b, since the auth step needed it to
+      demonstrate authorization gating end-to-end
 - [ ] USG notification email setting persisted
 
 ## Step 5 — Notifications (not started)

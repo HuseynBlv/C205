@@ -33,12 +33,27 @@ port = 54324
 [auth]
 enabled = true
 site_url = "http://127.0.0.1:3000"
-additional_redirect_urls = ["http://127.0.0.1:3000"]
+additional_redirect_urls = ["http://127.0.0.1:3000/**"]
 jwt_expiry = 3600
 enable_signup = true
-enable_confirmations = false
+enable_confirmations = true
 
 [auth.email]
 enable_signup = true
 double_confirm_changes = false
-enable_confirmations = false
+enable_confirmations = true
+
+# The CLI's built-in default templates use GoTrue's own hosted
+# /auth/v1/verify endpoint (the older implicit-flow link, tokens delivered
+# in a URL fragment). Our /auth/confirm route handler expects the current
+# token_hash pattern instead (verifyOtp, server-side, no fragment) — these
+# overrides are required for that route to ever actually receive a
+# token_hash. A hosted project needs the equivalent templates set in the
+# dashboard (Authentication → Email Templates) — see README.md.
+[auth.email.template.confirmation]
+subject = "Confirm your email address"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Reset your password"
+content_path = "./supabase/templates/recovery.html"

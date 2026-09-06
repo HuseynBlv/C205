@@ -18,10 +18,19 @@
 -- convenience, so no production migration depends on the extension.
 create extension if not exists pgcrypto with schema public;
 
+-- confirmation_token/recovery_token/email_change_token_new/email_change have
+-- no column default in auth.users (unlike phone_change and friends, which
+-- default to ''). GoTrue's Go code scans every one of these as a plain
+-- string, so leaving them NULL (as a naive column list here would) makes
+-- its very first query for the row fail with "converting NULL to string is
+-- unsupported" — a real, previously-undiscovered bug this step's actual
+-- sign-in testing (not just pgTAP) surfaced. Real signups never hit this:
+-- GoTrue's own INSERT always sets these to ''.
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password,
   email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
-  created_at, updated_at
+  created_at, updated_at,
+  confirmation_token, recovery_token, email_change_token_new, email_change
 )
 values
   (
@@ -30,7 +39,7 @@ values
     'authenticated', 'authenticated', 'admin@c205.local',
     crypt('devpassword123', gen_salt('bf')),
     now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Aysel Admin"}',
-    now(), now()
+    now(), now(), '', '', '', ''
   ),
   (
     '00000000-0000-0000-0000-000000000000',
@@ -38,7 +47,7 @@ values
     'authenticated', 'authenticated', 'active@c205.local',
     crypt('devpassword123', gen_salt('bf')),
     now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Kamran Active"}',
-    now(), now()
+    now(), now(), '', '', '', ''
   ),
   (
     '00000000-0000-0000-0000-000000000000',
@@ -46,7 +55,7 @@ values
     'authenticated', 'authenticated', 'pending@c205.local',
     crypt('devpassword123', gen_salt('bf')),
     now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Nigar Pending"}',
-    now(), now()
+    now(), now(), '', '', '', ''
   ),
   (
     '00000000-0000-0000-0000-000000000000',
@@ -54,7 +63,7 @@ values
     'authenticated', 'authenticated', 'suspended@c205.local',
     crypt('devpassword123', gen_salt('bf')),
     now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Elvin Suspended"}',
-    now(), now()
+    now(), now(), '', '', '', ''
   );
 
 -- Promote demo accounts out of the default USER/PENDING the trigger gives
