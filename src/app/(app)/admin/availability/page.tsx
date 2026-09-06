@@ -6,10 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/states/empty-state";
+import { ErrorState } from "@/components/states/error-state";
 import { fixtureAvailability } from "@/lib/fixtures/data";
 import { useFixtures, ROOM_TIMEZONE } from "@/lib/config";
 import { getCurrentProfile, isActiveAdmin } from "@/lib/auth/dal";
 import { createClient } from "@/lib/supabase/server";
+import { AutoRefresh } from "@/components/shared/auto-refresh";
 import {
   CreateBlockForm,
   PublishAvailabilityForm,
@@ -39,7 +41,7 @@ function formatRange(startsAt: string, endsAt: string) {
 
 async function RealAvailability({ roomId }: { roomId: string }) {
   const supabase = await createClient();
-  const [{ data: windows }, { data: blocks }] = await Promise.all([
+  const [{ data: windows, error: windowsError }, { data: blocks, error: blocksError }] = await Promise.all([
     supabase
       .from("availability_windows")
       .select("*")
@@ -51,6 +53,10 @@ async function RealAvailability({ roomId }: { roomId: string }) {
       .eq("room_id", roomId)
       .order("starts_at", { ascending: true }),
   ]);
+
+  if (windowsError || blocksError) {
+    return <ErrorState description="We couldn't load availability just now." />;
+  }
 
   const windowRows = (windows ?? []) as Tables<"availability_windows">[];
   const blockRows = (blocks ?? []) as Tables<"blocked_intervals">[];
@@ -171,6 +177,7 @@ export default async function AdminAvailabilityPage() {
 
   return (
     <RequireAdmin isAdmin={admin}>
+      <AutoRefresh />
       <PageHeader
         title="Availability"
         description="Publish open hours and block dates or hours for C205."

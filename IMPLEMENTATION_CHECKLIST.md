@@ -487,16 +487,70 @@ to them yet (that's 3b, below).
 - [x] "My Requests" lists the caller's own real reservations (RLS-scoped)
       and gained a real Cancel action for APPROVED reservations (using
       `cancel_reservation`'s optimistic version)
+- [x] **Live availability in the request form** (`src/lib/booking/slot-status.ts`,
+      `availability-query.ts`): picking a date fetches that day's real
+      published windows, admin blocks, and anonymized pending/approved
+      occupancy (via `room_occupancy` — never the base `reservations`
+      table, so no other user's identity/purpose ever reaches this
+      client-side code), and colors every start/end slot Open / Pending
+      request / Reserved / Unavailable — icon plus color, never color
+      alone (`TimeSlotPicker`'s `SlotStatusLegend`). A pending overlap is
+      shown, not blocked, matching the spec's "overlay, not a block" rule
+      (only an *approved* overlap or outside-hours slot reads as
+      unavailable to book).
+- [x] **Immediate client-side validation preview**, mirroring
+      `submit_request`'s own checks (`evaluateRequestedRange`) so a user
+      sees `OUTSIDE_AVAILABILITY`/`RESERVATION_CONFLICT`/
+      `ADVANCE_NOTICE_REQUIRED` — or an informational "overlaps a pending
+      request" note — before submitting, while the backend call remains
+      the authoritative check (this preview never blocks submission by
+      itself, since the local snapshot can be stale).
+- [x] **Race-condition recovery**: if a submission is rejected because the
+      slot became unavailable after the page loaded, the form keeps every
+      field the user entered, refreshes the day's availability in place,
+      and says so explicitly, instead of silently resetting or leaving a
+      stale picker.
+- [x] **Idempotency key reuse/regeneration**: the key is now derived from
+      the actual submitted payload (room/time/purpose/participants) —
+      retrying the *same* attempt reuses the same key, but any edit before
+      resubmitting gets a fresh one, matching the exact rule asked for
+      (previously it was one key per form mount, regardless of edits).
+- [x] **My Requests status filters** (`requests/requests-list.tsx`):
+      All/Pending/Approved/Rejected/Cancelled/Past tabs with live counts,
+      "Past" meaning any request whose end time has already elapsed
+      regardless of status.
+- [x] **Private request-detail pages** (`requests/[id]/page.tsx`) — RLS
+      (`reservations_select_own`/`_admin`) is what actually enforces
+      privacy here: a request that exists but belongs to someone else
+      comes back empty, indistinguishable from "doesn't exist," so the
+      page can never confirm or deny another user's reservation.
+- [x] Submission receipt now includes the literal required sentence,
+      "Pending USG approval. The room is not yet reserved."
+- [x] **Loading skeletons and error states**: `loading.tsx` added for
+      calendar/requests/admin-reservations/admin-availability (using the
+      `LoadingState`/`CalendarLoadingState` components built in Step 1 but
+      never wired to a route until now); a new `ErrorState` component
+      (distinct from `EmptyState` — a real fetch failure must never read
+      as "there's nothing here") with a Retry action is now shown instead
+      of silently treating a Supabase query error as an empty list on
+      calendar/requests/admin-reservations/admin-availability.
+- [x] **Refresh on focus + periodic polling, no realtime infra**
+      (`useRefreshOnFocus`, `<AutoRefresh />`): calendar, My Requests, and
+      both admin screens re-run their server-side fetch (`router.refresh()`)
+      on window focus/visibility and every 60s; the request form refreshes
+      its own live availability every 45s for the same reason, since it's
+      the most time-sensitive screen (another user's submission can change
+      what's actually bookable while the form is open).
 
 ### Known gaps after this step
 
 - **`modify_reservation` and `create_manual_reservation` have no UI yet**
   — both database functions exist and are pgTAP-tested (Step 3a), but
   wiring an admin-facing "edit this reservation's time" or "book directly
-  on someone's behalf" screen was deliberately deprioritized this step in
-  favor of the core submit → approve/reject → cancel loop. Revisit as
-  part of Step 4 if manual admin bookings are needed before real email
-  notifications go out.
+  on someone's behalf" screen was deliberately deprioritized in favor of
+  the core submit → approve/reject → cancel loop and the live-availability
+  work above. Revisit if manual admin bookings are needed before real
+  email notifications go out.
 - The FullCalendar view is read-only — no drag-to-select, no click-to-
   prefill-the-request-form. Booking still happens entirely through
   `/requests/new`.
@@ -504,6 +558,10 @@ to them yet (that's 3b, below).
   per pending reservation on `admin/reservations` (an N+1 pattern) —
   fine at this app's scale (one room, a handful of pending requests at
   once), but worth a single batched query if that ever stops being true.
+- The sidebar/app shell itself (built in Step 1) has no small-screen
+  collapse behavior — narrow-screen work this step focused on the forms
+  and lists actually touched (responsive `flex-col sm:flex-row` patterns
+  throughout), not the shell's own layout.
 
 ### Bugs found and fixed by actually running this step
 
@@ -550,6 +608,24 @@ to them yet (that's 3b, below).
   callback is *constructed* during render even though it only ever runs
   on submit. Fixed by using lazy-initialized `useState` instead of
   `useRef` for a value that only ever needs to be read, not mutated.
+- Three more React Compiler-era ESLint errors while building the live
+  availability picker, all the same underlying lesson (side effects,
+  including any ref mutation or `setState` call, belong strictly inside a
+  callback — an event handler, an effect's own async `.then`, a
+  `setInterval` tick — never directly in a render body or an effect's
+  synchronous top level): (1) `react-hooks/refs` again, this time because
+  the submit handler *transitively* called a `useCallback` that read a
+  ref (`dayRequestId`, used for a stale-response guard) — fixed by
+  dropping the ref-based guard rather than working around it, since the
+  race it guarded against was minor and self-correcting; (2)
+  `react-hooks/purity` for calling `Date.now()` directly while computing
+  the live validation preview during render — fixed by moving "now" into
+  state, refreshed via effect; (3) `react-hooks/set-state-in-effect` for
+  calling a state-setting function synchronously as the first statement
+  of an effect (both the date-change effect and the "now" clock effect)
+  — fixed by deferring the call into a `Promise.resolve().then(...)`
+  microtask, which the rule treats as the "callback" it wants setState
+  calls confined to.
 
 ## Step 4 — User & admin screens (mostly done early)
 

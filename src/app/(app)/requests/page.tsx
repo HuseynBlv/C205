@@ -1,36 +1,16 @@
 import Link from "next/link";
-import { ClipboardList } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { EmptyState } from "@/components/states/empty-state";
-import { ReservationStatusBadge } from "@/components/status/status-badge";
+import { ErrorState } from "@/components/states/error-state";
 import { fixtureReservations, fixtureCurrentUser } from "@/lib/fixtures/data";
-import { useFixtures, ROOM_TIMEZONE } from "@/lib/config";
+import { useFixtures } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { getVerifiedUser } from "@/lib/auth/dal";
-import { CancelReservationButton } from "@/components/requests/cancel-reservation-button";
-import type { ReservationRequest } from "@/lib/types";
+import { AutoRefresh } from "@/components/shared/auto-refresh";
+import { RequestsList, type RequestListItem } from "@/app/(app)/requests/requests-list";
 import type { Reservation } from "@/lib/booking/actions";
 
-function formatRange(startsAt: string, endsAt: string) {
-  const start = new Date(startsAt);
-  const end = new Date(endsAt);
-  const dateFmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: ROOM_TIMEZONE,
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-  const timeFmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: ROOM_TIMEZONE,
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  return `${dateFmt.format(start)} · ${timeFmt.format(start)}–${timeFmt.format(end)}`;
-}
-
-function fromReservationRow(r: Reservation): ReservationRequest {
+function fromReservationRow(r: Reservation): RequestListItem {
   return {
     id: r.id,
     requesterId: r.requester_id ?? "",
@@ -46,32 +26,38 @@ function fromReservationRow(r: Reservation): ReservationRequest {
     rejectionReason: r.status === "REJECTED" ? r.decision_reason : null,
     adminOverride: r.admin_override,
     overrideReason: r.override_reason,
+    version: r.version,
   };
 }
 
 export default async function MyRequestsPage() {
-  let requests: ReservationRequest[] = [];
-  let versionById = new Map<string, number>();
+  let requests: RequestListItem[] = [];
+  let loadError = false;
 
   if (useFixtures) {
-    requests = fixtureReservations.filter((r) => r.requesterId === fixtureCurrentUser.id);
+    requests = fixtureReservations
+      .filter((r) => r.requesterId === fixtureCurrentUser.id)
+      .map((r) => ({ ...r, version: 1 }));
   } else {
     const user = await getVerifiedUser();
     if (user) {
       const supabase = await createClient();
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("reservations")
         .select("*")
         .eq("requester_id", user.id)
         .order("submitted_at", { ascending: false });
-      const rows = (data ?? []) as Reservation[];
-      requests = rows.map(fromReservationRow);
-      versionById = new Map(rows.map((r) => [r.id, r.version]));
+      if (error) {
+        loadError = true;
+      } else {
+        requests = ((data ?? []) as Reservation[]).map(fromReservationRow);
+      }
     }
   }
 
   return (
     <div>
+      {!useFixtures ? <AutoRefresh /> : null}
       <PageHeader
         title="My Requests"
         description="Every request you've submitted, its decision, and reservation history."
@@ -82,47 +68,10 @@ export default async function MyRequestsPage() {
         }
       />
 
-      {requests.length === 0 ? (
-        <EmptyState
-          icon={ClipboardList}
-          title="No requests yet"
-          description="Submit a request for C205 and track its status here — from Pending through a final decision."
-          action={
-            <Button asChild size="sm">
-              <Link href="/requests/new">Request C205</Link>
-            </Button>
-          }
-        />
+      {loadError ? (
+        <ErrorState description="We couldn't load your requests just now." />
       ) : (
-        <div className="space-y-3">
-          {requests.map((request) => (
-            <Card key={request.id}>
-              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-foreground">{request.purpose}</p>
-                  <p className="mt-0.5 text-sm text-muted-foreground">
-                    {formatRange(request.startsAt, request.endsAt)} · {request.participantCount}{" "}
-                    participants
-                  </p>
-                  {request.status === "REJECTED" && request.rejectionReason ? (
-                    <p className="mt-1.5 text-sm text-[#8a3c37]">
-                      Reason: {request.rejectionReason}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <ReservationStatusBadge status={request.status} />
-                  {!useFixtures && request.status === "APPROVED" ? (
-                    <CancelReservationButton
-                      reservationId={request.id}
-                      expectedVersion={versionById.get(request.id) ?? 1}
-                    />
-                  ) : null}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <RequestsList requests={requests} />
       )}
     </div>
   );

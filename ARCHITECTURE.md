@@ -351,12 +351,56 @@ Postgres function above, and the pages that use them.
   IMPLEMENTATION_CHECKLIST.md's Step 3b "Bugs found") — this helper is
   the one place in app code that does the conversion, so it only had to
   be gotten right once.
-- **`requests/new`** (`RequestForm`) — a per-mount idempotency key
-  (lazy `useState`, not a `useRef` — reading a ref inside the
-  `handleSubmit` callback trips `react-hooks/refs`, since that callback
-  is *constructed* during render even though it only *runs* on submit) is
-  sent with every submission, so a retried request after a dropped
-  network response can't create a duplicate.
+- **`src/lib/booking/slot-status.ts`** — pure, framework-free helpers
+  shared between the server (`availability-query.ts`, below) and the
+  client form: `getSlotStatus` turns a day's windows/blocks/pending/
+  approved ranges into one of `available`/`pending`/`approved`/
+  `unavailable` for a single slot, and `evaluateRequestedRange` mirrors
+  `submit_request`'s own checks (fit, approved-overlap, 72h/2h advance
+  notice) to preview what the backend would say about a candidate range
+  — advisory only; the backend re-checks everything authoritatively.
+- **`src/lib/booking/availability-query.ts`** — a Server Action,
+  `getDayAvailabilityAction(roomId, date)`, that fetches one local
+  calendar day's `availability_windows`, `blocked_intervals`, and
+  `room_occupancy` (never the base `reservations` table — no other
+  user's identity/purpose is ever fetched for this purpose) and converts
+  every row into Asia/Baku minutes-since-midnight, clamped to that day.
+- **`requests/new`** (`RequestForm`) — as the user picks a date, it calls
+  `getDayAvailabilityAction` and colors every start/end slot in
+  `TimeSlotPicker` by real status (icon + color, via `SlotStatusLegend` —
+  never color alone), and shows a live, non-blocking validation preview
+  from `evaluateRequestedRange` before the user submits. A pending
+  overlap is shown as an informational note, never treated as blocking —
+  only an approved overlap or an outside-hours slot reads as
+  unavailable, matching `submit_request`'s own rules. The idempotency key
+  is derived from the actual submitted payload (room/time/purpose/
+  participants): resubmitting the *same* payload after a dropped network
+  response reuses the same key, but editing anything before resubmitting
+  mints a fresh one — tracked in `useState`, never a `useRef` (reading a
+  ref inside the `handleSubmit` callback, even transitively through a
+  called function, trips `react-hooks/refs`, since that callback is
+  *constructed* during render even though it only *runs* on submit). If
+  a submission is rejected because the slot became unavailable after the
+  page loaded, the form preserves every field, refreshes the day's
+  availability in place, and says so explicitly rather than resetting.
+- **`requests/requests-list.tsx`** and **`requests/[id]/page.tsx`** — a
+  client-side status-filter (All/Pending/Approved/Rejected/Cancelled/
+  Past) over the requester's own already-fetched rows, and a per-request
+  detail page whose privacy is enforced by RLS itself
+  (`reservations_select_own`/`_admin`), not app logic: a request that
+  exists but belongs to someone else comes back empty, indistinguishable
+  from "doesn't exist."
+- **`src/components/states/error-state.tsx`** and **`loading.tsx`**
+  route files — a real Supabase query failure now renders a distinct
+  "something went wrong, Retry" state (never silently as an empty list),
+  and the `LoadingState`/`CalendarLoadingState` skeletons built in Step 1
+  are finally wired to a route via Next's `loading.tsx` convention.
+- **`src/lib/hooks/use-refresh-on-focus.ts`** / **`AutoRefresh`** — plain
+  polling (window focus/visibility + a fixed interval calling
+  `router.refresh()`), deliberately not realtime infrastructure:
+  calendar, My Requests, and both admin screens refresh every 60s; the
+  request form's own availability fetch refreshes every 45s, since it's
+  the most time-sensitive screen open.
 - **`/calendar`** (`src/components/calendar/calendar-view.tsx`) —
   FullCalendar, read-only: published availability and blocked intervals
   as background events, `room_occupancy` as real (anonymized) events.

@@ -5,10 +5,12 @@ import { RequireAdmin } from "@/components/admin/require-admin";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/states/empty-state";
+import { ErrorState } from "@/components/states/error-state";
 import { ReservationStatusBadge } from "@/components/status/status-badge";
 import { getCurrentProfile, isActiveAdmin } from "@/lib/auth/dal";
 import { useFixtures, ROOM_TIMEZONE } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
+import { AutoRefresh } from "@/components/shared/auto-refresh";
 import { getConflictWarnings } from "@/lib/booking/actions";
 import type { Reservation } from "@/lib/booking/actions";
 import { ApproveButton, RejectButton } from "@/app/(app)/admin/reservations/decision-buttons";
@@ -37,10 +39,15 @@ const WARNING_LABELS: Record<string, string> = {
 
 async function RealAdminReservations() {
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("reservations")
     .select("*")
     .order("submitted_at", { ascending: false });
+
+  if (error) {
+    return <ErrorState description="We couldn't load reservations just now." />;
+  }
+
   const rows = (data ?? []) as Reservation[];
 
   const pending = rows.filter((r) => r.status === "PENDING");
@@ -136,6 +143,7 @@ export default async function AdminReservationsPage() {
 
   return (
     <RequireAdmin isAdmin={admin}>
+      <AutoRefresh />
       <PageHeader
         title="Reservations"
         description="Review pending requests and manage the full reservation history."

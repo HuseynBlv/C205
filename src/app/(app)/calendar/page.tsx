@@ -2,6 +2,8 @@ import { CalendarOff } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { PreviewNotice } from "@/components/shared/preview-notice";
 import { EmptyState } from "@/components/states/empty-state";
+import { ErrorState } from "@/components/states/error-state";
+import { AutoRefresh } from "@/components/shared/auto-refresh";
 import { fixtureAvailability } from "@/lib/fixtures/data";
 import { useFixtures, ROOM_TIMEZONE } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
@@ -50,11 +52,19 @@ function windowStyle(startTime: string, endTime: string) {
 
 async function RealCalendar() {
   const supabase = await createClient();
-  const [{ data: windows }, { data: blocks }, { data: occupancy }] = await Promise.all([
+  const [
+    { data: windows, error: windowsError },
+    { data: blocks, error: blocksError },
+    { data: occupancy, error: occupancyError },
+  ] = await Promise.all([
     supabase.from("availability_windows").select("*"),
     supabase.from("blocked_intervals").select("*"),
     supabase.from("room_occupancy").select("*"),
   ]);
+
+  if (windowsError || blocksError || occupancyError) {
+    return <ErrorState description="We couldn't load the calendar just now." />;
+  }
 
   const windowRows = (windows ?? []) as Tables<"availability_windows">[];
   const blockRows = (blocks ?? []) as Tables<"blocked_intervals">[];
@@ -103,6 +113,7 @@ async function RealCalendar() {
 export default function CalendarPage() {
   return (
     <div>
+      {!useFixtures ? <AutoRefresh /> : null}
       <PageHeader
         title="Calendar"
         description={`Published availability for C205 · times shown in ${ROOM_TIMEZONE}`}
