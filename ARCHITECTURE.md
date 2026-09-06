@@ -242,6 +242,94 @@ SSR pattern rather than the older `auth-helpers` packages:
   (their underlying data is still Step 3/4 fixtures-only) — see
   IMPLEMENTATION_CHECKLIST.md.
 
+## Booking engine (`supabase/migrations/20260906100000_booking_engine.sql`)
+
+The authoritative C205 scheduling operations, each a transactional
+Postgres function invoked with the caller's own identity (`auth.uid()`) —
+no app code calls them yet (Step 3b).
+
+**Locking.** Every function below acquires the same lock first: the
+room's own row in `public.rooms` (`select ... for update`), in the same
+order every time (room, then the specific reservation row once its id is
+known, never the reverse). With one room this fully serializes every
+scheduling write; the correctness this buys isn't hypothetical — it was
+proven with two real concurrent connections holding overlapping
+approvals, not just asserted (see IMPLEMENTATION_CHECKLIST.md's Step 3a
+for the actual timestamps). The exclusion constraint from the
+reservations migration is unchanged and still the final guarantee below
+the lock, exactly as before.
+
+**Availability fit.** `reservation_fits_availability(room, starts, ends)`
+answers "does this interval sit entirely inside the union of published
+availability, minus anything blocked?" using native PG14+ multirange
+containment (`tstzrange <@ range_agg(...)`) rather than manual gap-
+stitching — this is what lets two adjacent published windows (9-12 and
+12-15) correctly cover a request spanning both without extra logic.
+`reservation_overlaps_approved(room, starts, ends, exclude_id)` is the
+separate, simpler check against existing APPROVED rows. Both are
+`SECURITY DEFINER` so they see the complete picture regardless of the
+original caller's own RLS visibility (a regular user's own reservations
+RLS would otherwise silently under-count conflicts).
+
+**The functions**, in the order a reservation moves through them:
+
+- `submit_request` — active+verified account required; identity and
+  PENDING status always derived server-side; validates future start,
+  positive duration, purpose, participants; must fit availability; rejects
+  overlap with APPROVED (permits overlapping PENDING); 72-hour notice for
+  ≥2-hour requests. `submitted_at` is `clock_timestamp()` captured *after*
+  the room lock — `now()` is frozen at transaction start and would predate
+  however long the call waited on the lock, undermining the whole point of
+  timestamping "when this was actually submitted." Idempotency
+  (`idempotency_keys`, now keyed by `(scope, requester_id, key)` with a
+  stored `payload` to detect a changed-payload replay) lets a client retry
+  a network failure safely.
+- `approve_request` — active admin, PENDING, matching `p_expected_version`
+  required. Re-checks availability and approved-conflicts at approval
+  time, not just submission time; advance notice is evaluated against
+  the *original* `submitted_at`, so a slow-to-decide admin can't turn a
+  compliant request into a violation just by sitting on it. An explicit,
+  audited override can bypass availability-fit and advance-notice — never
+  the approved-overlap check, which stays absolute (the exclusion
+  constraint would refuse the `UPDATE` anyway).
+- `reject_request` — PENDING → REJECTED, admin-only, version-checked.
+- `cancel_reservation` — **APPROVED → CANCELLED only.** The full state
+  machine this migration implements is exactly `PENDING → APPROVED |
+  REJECTED` and `APPROVED → CANCELLED` — no `PENDING → CANCELLED` edge. A
+  requester can't withdraw their own still-pending request in this
+  version; an admin rejecting it is the equivalent path today.
+- `modify_reservation` — admin-only; revalidates the *new* interval
+  exactly like submission, requiring an override reason only when the new
+  values actually need one. The approved-overlap check is absolute
+  regardless of override. Any raised exception rolls back the entire
+  function — a failed modification is provably a no-op, not just assumed
+  to be one (see the pgTAP file).
+- `create_manual_reservation` — admin-only; creates and approves in one
+  atomic step and sends exactly one confirmation email, deliberately never
+  the "pending" receipt `submit_request` sends.
+- `publish_availability_window` / `remove_availability_window` /
+  `create_blocked_interval` / `remove_blocked_interval` — availability
+  writes now go through these locked functions instead of a direct table
+  grant (the direct `INSERT`/`UPDATE`/`DELETE` grants for `authenticated`
+  were revoked) — a raw client write here would have made the room lock
+  meaningless for every other function that depends on it. Blocking time
+  never touches existing reservations; see the next paragraph.
+- `reservation_conflict_warnings(reservation_id)` — read-only, derived,
+  mutates nothing. When a block or a competing approval makes a PENDING
+  request no longer fit or no longer conflict-free, it stays exactly
+  PENDING; this function is how a caller finds out why approving it as-is
+  would now fail, without the system silently rejecting or cancelling
+  anything on their behalf.
+
+**Stable errors.** Six identifiers are returned as the exception message
+text itself, so client code can match on it directly:
+`ACCOUNT_NOT_AUTHORIZED`, `ADVANCE_NOTICE_REQUIRED`,
+`OUTSIDE_AVAILABILITY`, `RESERVATION_CONFLICT`,
+`INVALID_STATUS_TRANSITION`, `STALE_RESERVATION_VERSION`. Other
+situational validation errors (bad input shape, not-found) keep the
+codebase's existing free-text convention since they aren't part of this
+specific contract.
+
 ## Fixtures vs. production (`src/lib/config.ts`)
 
 ```ts
@@ -369,20 +457,26 @@ relying on the browser's local zone. The eventual schema stores
 
 ## What's explicitly deferred
 
-The database schema, RLS, and privileged functions exist
-(`supabase/migrations/`), and auth + account authorization are fully wired
-to a real (so far local-only — no hosted project exists yet) Supabase
-instance. What's still deferred: no Next.js server actions exist yet to
-call `submit_reservation`/`decide_reservation`/`cancel_reservation`, so
-`useFixtures` still governs the calendar/requests/admin-reservations
-screens' actual data (their auth *gating* is real; their *content* isn't
-yet). The booking form on `requests/new` validates shape only (required
-fields, end after start, positive participant count) — the
-72-hour/overlap/availability rules, FullCalendar wiring, and the real
-mobile time-list interaction are explicit follow-up work. Notifications
-and the email outbox don't exist yet (the `email_outbox` table does, but
-nothing drains it). None of this is faked in the UI; screens that would
-depend on it show a `PreviewNotice` or an honest empty state instead.
+Auth + account authorization are fully wired to real Supabase, both
+locally and on a linked hosted project (C205-prod — see
+IMPLEMENTATION_CHECKLIST.md's Step 2b for its own remaining gaps, notably
+that its email templates can't be pushed until custom SMTP is configured).
+The full booking-engine database layer (Step 3a) also exists and is
+verified against a live database — but no app code calls any of it yet
+(Step 3b): `useFixtures` still governs the calendar/requests/admin-
+reservations/admin-availability screens' actual *content* (their auth
+*gating* is real). The booking form on `requests/new` currently validates
+shape only (required fields, end after start, positive participant
+count) client-side — wiring it to `submit_request` and surfacing its six
+stable error codes as real form errors is Step 3b, along with FullCalendar
+on `/calendar` and the real mobile time-list interaction. Notifications
+and the email outbox don't exist as a *sending* pipeline yet — the
+`email_outbox` table does, and `submit_request`/`approve_request`/
+`reject_request`/`cancel_reservation`/`modify_reservation`/
+`create_manual_reservation` all already write real jobs into it, but
+nothing drains it (Step 5). None of this is faked in the UI; screens that
+would depend on it show a `PreviewNotice` or an honest empty state
+instead.
 
 The admin Approve/Reject buttons on `admin/reservations` are now clickable
 (previously `disabled`) so the decision motion and card layout can be

@@ -9,7 +9,7 @@
 -- technique.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(18);
+select plan(19);
 
 -- ---- fixtures ---------------------------------------------------------
 -- c1, c2: will become admins (one at a time) to test last-admin protection.
@@ -227,6 +227,23 @@ select is(
   (select public.is_active_user()),
   false,
   'the same unchanged session immediately loses access once suspended — no new token was issued or needed'
+);
+
+reset role;
+
+-- ---- a non-admin cannot change a DIFFERENT user's account status ------
+-- c2's role was cleared back to USER by the "clear every admin" step
+-- above, while its account_status stayed ACTIVE (only role was ever
+-- touched on c2) — a genuine active-but-non-admin persona, distinct from
+-- c4's story above (attempting on themselves).
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000c2","role":"authenticated"}';
+
+select throws_ok(
+  $$ select public.set_account_status('00000000-0000-0000-0000-0000000000c1', 'ACTIVE', 'not an admin') $$,
+  '42501'::char(5),
+  NULL,
+  'a non-admin cannot call set_account_status on a different user'
 );
 
 reset role;

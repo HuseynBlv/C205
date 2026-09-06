@@ -270,21 +270,24 @@ export type Database = {
         Row: {
           created_at: string
           key: string
-          requester_id: string | null
+          payload: Json
+          requester_id: string
           response: Json | null
           scope: string
         }
         Insert: {
           created_at?: string
           key: string
-          requester_id?: string | null
+          payload?: Json
+          requester_id: string
           response?: Json | null
           scope: string
         }
         Update: {
           created_at?: string
           key?: string
-          requester_id?: string | null
+          payload?: Json
+          requester_id?: string
           response?: Json | null
           scope?: string
         }
@@ -501,28 +504,13 @@ export type Database = {
       }
     }
     Functions: {
-      bootstrap_first_admin: {
-        Args: never
-        Returns: {
-          account_status: Database["public"]["Enums"]["account_status"]
-          created_at: string
-          email: string
-          email_verified_at: string | null
-          full_name: string
-          id: string
-          role: Database["public"]["Enums"]["account_role"]
-          status_reason: string | null
-          updated_at: string
+      approve_request: {
+        Args: {
+          p_expected_version: number
+          p_override?: boolean
+          p_override_reason?: string
+          p_reservation_id: string
         }
-        SetofOptions: {
-          from: "*"
-          to: "profiles"
-          isOneToOne: true
-          isSetofReturn: false
-        }
-      }
-      cancel_reservation: {
-        Args: { p_reason?: string; p_reservation_id: string }
         Returns: {
           admin_override: boolean
           cancellation_reason: string | null
@@ -554,9 +542,29 @@ export type Database = {
           isSetofReturn: false
         }
       }
-      decide_reservation: {
+      bootstrap_first_admin: {
+        Args: never
+        Returns: {
+          account_status: Database["public"]["Enums"]["account_status"]
+          created_at: string
+          email: string
+          email_verified_at: string | null
+          full_name: string
+          id: string
+          role: Database["public"]["Enums"]["account_role"]
+          status_reason: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "profiles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      cancel_reservation: {
         Args: {
-          p_decision: Database["public"]["Enums"]["reservation_status"]
+          p_expected_version: number
           p_reason?: string
           p_reservation_id: string
         }
@@ -591,8 +599,203 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      create_blocked_interval: {
+        Args: {
+          p_ends_at: string
+          p_reason: string
+          p_room_id: string
+          p_starts_at: string
+        }
+        Returns: {
+          blocked_by: string | null
+          created_at: string
+          ends_at: string
+          id: string
+          reason: string
+          room_id: string
+          starts_at: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "blocked_intervals"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      create_manual_reservation: {
+        Args: {
+          p_ends_at: string
+          p_override?: boolean
+          p_override_reason?: string
+          p_participant_count: number
+          p_purpose: string
+          p_requester_email: string
+          p_requester_name: string
+          p_room_id: string
+          p_starts_at: string
+        }
+        Returns: {
+          admin_override: boolean
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          decision_reason: string | null
+          ends_at: string
+          id: string
+          override_reason: string | null
+          participant_count: number
+          purpose: string
+          requester_email: string
+          requester_id: string | null
+          requester_name: string
+          room_id: string
+          starts_at: string
+          status: Database["public"]["Enums"]["reservation_status"]
+          submitted_at: string
+          updated_at: string
+          version: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "reservations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       is_active_admin: { Args: never; Returns: boolean }
       is_active_user: { Args: never; Returns: boolean }
+      modify_reservation: {
+        Args: {
+          p_ends_at?: string
+          p_expected_version: number
+          p_override?: boolean
+          p_override_reason?: string
+          p_participant_count?: number
+          p_purpose?: string
+          p_reservation_id: string
+          p_starts_at?: string
+        }
+        Returns: {
+          admin_override: boolean
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          decision_reason: string | null
+          ends_at: string
+          id: string
+          override_reason: string | null
+          participant_count: number
+          purpose: string
+          requester_email: string
+          requester_id: string | null
+          requester_name: string
+          room_id: string
+          starts_at: string
+          status: Database["public"]["Enums"]["reservation_status"]
+          submitted_at: string
+          updated_at: string
+          version: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "reservations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      publish_availability_window: {
+        Args: {
+          p_ends_at: string
+          p_label?: string
+          p_room_id: string
+          p_starts_at: string
+        }
+        Returns: {
+          created_at: string
+          ends_at: string
+          id: string
+          label: string | null
+          published_by: string | null
+          room_id: string
+          starts_at: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "availability_windows"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      reject_request: {
+        Args: {
+          p_expected_version: number
+          p_reason?: string
+          p_reservation_id: string
+        }
+        Returns: {
+          admin_override: boolean
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          decision_reason: string | null
+          ends_at: string
+          id: string
+          override_reason: string | null
+          participant_count: number
+          purpose: string
+          requester_email: string
+          requester_id: string | null
+          requester_name: string
+          room_id: string
+          starts_at: string
+          status: Database["public"]["Enums"]["reservation_status"]
+          submitted_at: string
+          updated_at: string
+          version: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "reservations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      remove_availability_window: {
+        Args: { p_window_id: string }
+        Returns: undefined
+      }
+      remove_blocked_interval: {
+        Args: { p_block_id: string }
+        Returns: undefined
+      }
+      reservation_conflict_warnings: {
+        Args: { p_reservation_id: string }
+        Returns: string[]
+      }
+      reservation_fits_availability: {
+        Args: { p_ends_at: string; p_room_id: string; p_starts_at: string }
+        Returns: boolean
+      }
+      reservation_overlaps_approved: {
+        Args: {
+          p_ends_at: string
+          p_exclude_id?: string
+          p_room_id: string
+          p_starts_at: string
+        }
+        Returns: boolean
+      }
       set_account_status: {
         Args: {
           p_profile_id: string
@@ -655,7 +858,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
-      submit_reservation: {
+      submit_request: {
         Args: {
           p_ends_at: string
           p_idempotency_key?: string

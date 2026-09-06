@@ -73,14 +73,14 @@ select throws_ok(
 );
 
 select throws_ok(
-  $$ select public.submit_reservation(
+  $$ select public.submit_request(
        (select id from public.rooms where code = 'C205'),
        now() + interval '2 days', now() + interval '2 days 1 hour',
        'anon attempt', 2, null
      ) $$,
   '42501'::char(5),
   NULL,
-  'anon cannot execute submit_reservation'
+  'anon cannot execute submit_request'
 );
 
 reset role;
@@ -179,7 +179,7 @@ select throws_ok(
      from public.rooms where code = 'C205' $$,
   '42501'::char(5),
   NULL,
-  'active user cannot insert a reservation directly, only via submit_reservation()'
+  'active user cannot insert a reservation directly, only via submit_request()'
 );
 
 reset role;

@@ -318,23 +318,169 @@ prior "not executed" gap mattered. Running it surfaced three:
   rather than fixture-driven, but the underlying data is still Step 3/4
   scope) — see Step 3/4 below.
 
-## Step 3 — Booking engine (not started)
+## Step 3a — Booking engine: database functions ✅ (this step)
 
-- [ ] Postgres functions enforcing: interval fits published availability,
-      72-hour advance notice for ≥2-hour requests, no overlapping approved
-      reservations (including under concurrent admin actions), admin
-      override with recorded reason
-- [ ] `requests/new` wired to submit real requests
+Every C205 scheduling operation as a transactional Postgres function,
+invoked with the authenticated caller's own identity — no app code wired
+to them yet (that's 3b, below).
+
+- [x] `submit_request`, `approve_request`, `reject_request`,
+      `cancel_reservation` (now APPROVED → CANCELLED only — see "Tightened
+      state machine" below), `modify_reservation`, `create_manual_reservation`,
+      and four availability mutations (`publish_availability_window`,
+      `remove_availability_window`, `create_blocked_interval`,
+      `remove_blocked_interval`) — all in
+      `supabase/migrations/20260906100000_booking_engine.sql`
+- [x] Every one of them locks the room's own row (`select ... for update`
+      on `rooms`) before reading any scheduling state, in the same order
+      every time (room, then the specific reservation row once its id is
+      known) — this is what actually prevents two concurrent
+      submissions/approvals/modifications from interleaving, not just the
+      exclusion constraint (kept, unchanged, as the final guarantee below
+      the lock)
+- [x] `submit_request`: active+verified account required; identity and
+      PENDING status derived server-side (never client-supplied); future
+      start, positive duration, non-blank purpose, positive participants;
+      entire interval must fit published availability minus blocks
+      (`reservation_fits_availability`, using native PG14+ multirange
+      containment — `tstzrange <@ range_agg(...)`); rejects overlap with
+      APPROVED reservations, permits overlapping PENDING ones; 72-hour
+      notice required for ≥2-hour requests; `submitted_at` captured via
+      `clock_timestamp()` *after* the room lock (not `now()`, which is
+      frozen at transaction start and would predate any lock wait);
+      atomically writes the reservation, an audit event, and two email
+      jobs (USG notification + requester receipt)
+- [x] Idempotency: `(scope, requester_id, key)` now the primary key on
+      `idempotency_keys` (was `(scope, key)` — actor-unscoped, a real gap);
+      table gained a `payload` column so a replay with the identical
+      payload returns the cached original result, while the same key with
+      a *changed* payload is rejected (`23505`) rather than silently
+      returning a mismatched response
+- [x] `approve_request`: active admin, PENDING status, and matching
+      `p_expected_version` all required; re-checks availability and
+      approved-conflicts at approval time (not just submission time);
+      advance notice is evaluated against `submitted_at`, never the
+      moment of approval; an explicit, audited override
+      (`p_override` + non-blank `p_override_reason`) can bypass the
+      availability and advance-notice checks — but never the
+      approved-overlap check, which stays absolute
+- [x] Tightened state machine: `PENDING → APPROVED | REJECTED`,
+      `APPROVED → CANCELLED` are the only valid transitions —
+      `cancel_reservation` no longer accepts a PENDING reservation (a
+      requester withdrawing before any decision isn't in this version's
+      scope; an admin rejecting is the equivalent path). Every mutating
+      function rejects a wrong-status or stale-version call with the
+      matching stable error rather than silently doing nothing
+- [x] `modify_reservation` (admin-only): revalidates the *new* interval
+      exactly like submission; requires an override reason only when the
+      new time actually needs one (fits fine → no reason demanded); the
+      approved-overlap check is absolute regardless of override; any
+      raised exception rolls back the whole function, so a failed
+      modification changes nothing — proven directly in
+      `050_booking_engine.test.sql`, not just asserted
+- [x] `create_manual_reservation` (admin-only): creates and approves in
+      one atomic step, sends exactly one confirmation email — never the
+      "pending, awaiting review" receipt `submit_request` sends, since
+      nothing about it is actually pending
+- [x] `reservation_conflict_warnings(reservation_id)`: read-only, derived,
+      never mutates anything. A PENDING request that a later block or
+      approval makes newly non-fitting/conflicting stays exactly PENDING —
+      this just explains why approving it as-is would now fail
+- [x] Stable error identifiers returned as the exception message text
+      itself: `ACCOUNT_NOT_AUTHORIZED`, `ADVANCE_NOTICE_REQUIRED`,
+      `OUTSIDE_AVAILABILITY`, `RESERVATION_CONFLICT`,
+      `INVALID_STATUS_TRANSITION`, `STALE_RESERVATION_VERSION`
+- [x] Availability/block writes now go through the same locked functions
+      as reservations — direct `INSERT`/`UPDATE`/`DELETE` grants on
+      `availability_windows`/`blocked_intervals` were revoked from
+      `authenticated`, since a client bypassing the lock via a raw table
+      write would have made the room lock meaningless
+- [x] 88 pgTAP assertions across 5 files (54 → 88), including exact
+      2-hour/72-hour boundary tests (a small, deliberate margin either
+      side of the literal instant — see `050_booking_engine.test.sql`'s
+      header comment for why testing the true zero-margin edge against a
+      live clock would be flaky by construction, not more correct),
+      idempotency replay-vs-mismatch, and rollback-on-failure
+- [x] **Simultaneous approvals, proven with two real concurrently-held
+      connections** (pgTAP itself is one session executing statements in
+      order — it cannot demonstrate genuine concurrency on its own).
+      Two overlapping PENDING requests; connection A approved one and
+      held its transaction open for 3 seconds before committing;
+      connection B's `approve_request` on the other one was issued 2.3
+      seconds *before* A's commit and only returned (with
+      `RESERVATION_CONFLICT`, correctly) *after* A committed — direct
+      timestamp evidence that B blocked on the room lock rather than
+      racing:
+      ```
+      A: approved slot A at 09:09:24.57, held open until 09:09:27.60 (commit)
+      B: called approve_request at 09:09:25.28 (while A's lock was still held)
+      B: only returned RESERVATION_CONFLICT after A's commit at 09:09:27.60
+      ```
+- [x] `supabase/seed.sql` updated for the new function names/signatures,
+      and its demo reservation dates are now anchored to the next real
+      weekdays rather than a fixed day-offset — the old approach would
+      have failed roughly 2 days out of 7 once `submit_request` started
+      actually enforcing availability-fit (it never did before this step)
+
+### Bugs found and fixed by actually running this step
+
+- **Check-ordering bug in `submit_request`**: the room-row lock was
+  acquired *before* the active-account check. Since a suspended caller's
+  own client-side subquery for the room id is itself RLS-gated to active
+  users (and therefore resolves to `NULL`), this produced a confusing
+  "room `<NULL>` not found" instead of `ACCOUNT_NOT_AUTHORIZED`. Fixed by
+  moving the account check first — identity/permission isn't scheduling
+  state, so it shouldn't need the lock at all.
+- **A test-authoring bug, not a code bug**, initially looked like a real
+  regression: "submit a request overlapping an approved reservation, then
+  approve it" — but per spec, overlap with an *already-approved*
+  reservation must be rejected at submission time, full stop; there's no
+  way to reach "approve-time conflict" that way. The correct scenario is
+  two requests that only overlap *each other*, both still PENDING,
+  approved one at a time.
+- **pgTAP polymorphic-type error**: `isnt(:'a', :'b', ...)` failed with
+  "could not determine polymorphic type" when both sides are untyped
+  `:'var'` substitutions — needs an explicit cast on at least one side
+  (`:'a'::text`).
+
+### Known gaps after this step
+
+- No app code calls any of these functions yet — `/requests/new`,
+  `/calendar`, and `admin/reservations` are still fixtures-only. That's
+  Step 3b.
+- No sending worker drains `email_outbox` yet (Step 5) — the two email
+  jobs `submit_request` writes, and the ones `approve_request` /
+  `reject_request` / `cancel_reservation` / `modify_reservation` /
+  `create_manual_reservation` write, all sit in the outbox unsent.
+- A requester cannot withdraw their own still-PENDING request — only an
+  admin can reject it. Revisit if this turns out to matter in practice;
+  it was a deliberate reading of the specified state machine, not an
+  oversight.
+- `modify_reservation`/`create_manual_reservation` are admin-only; a
+  regular user cannot edit their own pending request's details (they'd
+  cancel via... they currently can't — see the gap above — and resubmit,
+  once cancellation of a PENDING request exists).
+
+## Step 3b — Booking engine: UI wiring (not started)
+
+- [ ] `requests/new` wired to `submit_request`, surfacing the six stable
+      error codes as real form errors
 - [ ] FullCalendar wired into `/calendar` for desktop
 - [ ] Real mobile date-picker + time-list booking interaction
+- [ ] `admin/reservations` wired to `approve_request`/`reject_request`,
+      showing `reservation_conflict_warnings` on pending items
+- [ ] `admin/availability` wired to the availability mutation functions
 
 ## Step 4 — User & admin screens (not started)
 
 - [ ] My Requests backed by real data + realtime-ish status updates
-- [ ] Admin reservation review (approve/reject with reason), manual
-      create/modify/cancel, override with reason
-- [ ] Admin availability publishing/blocking, without silently cancelling
-      approved reservations
+- [x] ~~Admin reservation review (approve/reject with reason), manual
+      create/modify/cancel, override with reason~~ — the database
+      functions exist now (Step 3a); UI wiring is Step 3b/4
+- [x] ~~Admin availability publishing/blocking, without silently cancelling
+      approved reservations~~ — the database functions exist now (Step
+      3a: blocking never touches existing reservations, see that
+      function's comment); UI wiring is Step 3b
 - [x] ~~Admin account management (authorize/reject/suspend/restore/remove)~~
       — done early, in Step 2b, since the auth step needed it to
       demonstrate authorization gating end-to-end

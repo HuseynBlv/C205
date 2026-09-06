@@ -8,11 +8,15 @@ never confirms a booking.
 
 This repository is being built in steps. The foundation step delivered the
 Next.js app, design system, shell, and navigation; Step 2a added the
-Supabase database foundation (migrations, RLS, privileged functions); this
-step (2b) wires real Supabase Auth end to end — registration, login,
-logout, email verification, password reset, and administrator
-authorization. See [`IMPLEMENTATION_CHECKLIST.md`](./IMPLEMENTATION_CHECKLIST.md)
-for exactly what works today and what's next, and
+Supabase database foundation; Step 2b wired real Supabase Auth end to end
+(registration, login, logout, email verification, password reset,
+administrator authorization); this step (3a) implements the authoritative
+scheduling operations — submit/approve/reject/cancel/modify a reservation,
+create one manually, and manage availability — as locked, transactional
+Postgres functions, verified against a real database including genuine
+concurrent approvals. No app code calls them yet — that's Step 3b. See
+[`IMPLEMENTATION_CHECKLIST.md`](./IMPLEMENTATION_CHECKLIST.md) for exactly
+what works today and what's next, and
 [`ARCHITECTURE.md`](./ARCHITECTURE.md) for how it's put together.
 
 ## Stack

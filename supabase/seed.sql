@@ -103,36 +103,55 @@ from public.rooms r where r.code = 'C205';
 -- Sample reservations spanning every status, via the real functions (not
 -- direct inserts) so this seed also doubles as a smoke test that the
 -- functions work end-to-end against a fresh database.
+--
+-- submit_request() now actually enforces "fits published availability",
+-- and only weekdays get a published window (see above) — so demo dates
+-- are anchored to the next few real weekdays rather than a fixed
+-- day-count offset, which would land on a weekend (and fail with
+-- OUTSIDE_AVAILABILITY) roughly two-sevenths of the time depending on
+-- which day `supabase db reset` happens to run.
 do $$
 declare
   v_room_id uuid;
+  v_weekday_dates date[] := '{}';
+  v_candidate date := current_date + 1;
   v_approved_id uuid;
+  v_approved_version integer;
   v_rejected_id uuid;
-  v_cancelled_id uuid;
+  v_cancel_demo_id uuid;
+  v_cancel_demo_version integer;
 begin
   select id into v_room_id from public.rooms where code = 'C205';
+
+  while array_length(v_weekday_dates, 1) is null or array_length(v_weekday_dates, 1) < 3 loop
+    if extract(isodow from v_candidate) between 1 and 5 then
+      v_weekday_dates := array_append(v_weekday_dates, v_candidate);
+    end if;
+    v_candidate := v_candidate + 1;
+  end loop;
 
   set local role authenticated;
   set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000d002","role":"authenticated"}';
 
   -- Stays PENDING: nothing further happens to it.
-  perform public.submit_reservation(
-    v_room_id, current_date + interval '3 days 10:00', current_date + interval '3 days 11:00',
+  perform public.submit_request(
+    v_room_id, v_weekday_dates[1] + time '10:00', v_weekday_dates[1] + time '11:00',
     'USG budget review', 6, null
   );
 
-  v_approved_id := (public.submit_reservation(
-    v_room_id, current_date + interval '4 days 14:00', current_date + interval '4 days 15:30',
+  v_approved_id := (public.submit_request(
+    v_room_id, v_weekday_dates[2] + time '14:00', v_weekday_dates[2] + time '15:30',
     'Club fair planning', 10, null
   )).id;
+  v_approved_version := 1;
 
-  v_rejected_id := (public.submit_reservation(
-    v_room_id, current_date + interval '4 days 14:30', current_date + interval '4 days 15:00',
+  v_rejected_id := (public.submit_request(
+    v_room_id, v_weekday_dates[2] + time '14:30', v_weekday_dates[2] + time '15:00',
     'Overlaps the club fair planning slot above', 3, null
   )).id;
 
-  v_cancelled_id := (public.submit_reservation(
-    v_room_id, current_date + interval '5 days 09:00', current_date + interval '5 days 10:00',
+  v_cancel_demo_id := (public.submit_request(
+    v_room_id, v_weekday_dates[3] + time '09:00', v_weekday_dates[3] + time '10:00',
     'Study group', 4, null
   )).id;
 
@@ -140,14 +159,18 @@ begin
   set local role authenticated;
   set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000d001","role":"authenticated"}';
 
-  perform public.decide_reservation(v_approved_id, 'APPROVED', 'Approved for planning purposes');
-  perform public.decide_reservation(v_rejected_id, 'REJECTED', 'Conflicts with an already-approved booking');
+  perform public.approve_request(v_approved_id, v_approved_version, false, 'Approved for planning purposes');
+  perform public.reject_request(v_rejected_id, 1, 'Conflicts with an already-approved booking');
+
+  -- Demonstrate APPROVED -> CANCELLED (cancel_reservation only accepts an
+  -- already-approved reservation, matching the real state machine).
+  v_cancel_demo_version := (public.approve_request(v_cancel_demo_id, 1, false, 'Approved, then cancelled below for the demo')).version;
 
   reset role;
   set local role authenticated;
   set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-00000000d002","role":"authenticated"}';
 
-  perform public.cancel_reservation(v_cancelled_id, 'Scheduling conflict, will resubmit');
+  perform public.cancel_reservation(v_cancel_demo_id, v_cancel_demo_version, 'Scheduling conflict, will resubmit');
 
   reset role;
 end;
