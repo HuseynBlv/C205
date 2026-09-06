@@ -265,15 +265,29 @@ prior "not executed" gap mattered. Running it surfaced three:
 
 ### Known gaps after this step
 
-- **Hosted-project configuration required, not yet done anywhere** (no
-  hosted project exists — see [[project-c205]]):
-  - Custom email templates (Authentication → Email Templates in the
-    dashboard) matching `supabase/templates/confirmation.html` /
-    `recovery.html`, or confirmation/recovery links will silently fall
-    back to the broken legacy flow described above.
-  - `site_url` and redirect URL allow-list matching the real domain.
-  - SMTP configured for production-volume sending (Supabase's built-in
-    sender is rate-limited and meant for development only).
+- **Hosted project now exists and is partially configured** — C205-prod
+  (`huxclffxxtbhawiajsxm`), linked via `supabase link`. Done so far:
+  schema fully pushed (`supabase db push`, all 7 migrations); `site_url`
+  and `additional_redirect_urls` pushed via `supabase config push`, using
+  the `[remotes.production]` override block in `supabase/config.toml`
+  (kept separate from local dev's `127.0.0.1:3000` settings). Still
+  needed:
+  - **`site_url`/`additional_redirect_urls` are still a placeholder**
+    (`https://c205-prod.example.com`) — update `[remotes.production.auth]`
+    in `config.toml` to the real domain once known, then re-run
+    `supabase config push`.
+  - **Custom email templates could not be pushed**: this project's free
+    tier rejects *any* `config push` auth update that includes
+    `[auth.email.template.*]` with `"Email template modification is not
+    available for free tier projects using the default email provider"`
+    — and rejects the whole update, not just the template part. Blocked
+    until either a custom SMTP provider is configured (Project Settings →
+    Auth → SMTP Settings) or the project is upgraded off the free tier.
+    Until then, this hosted project's confirmation/recovery emails still
+    use Supabase's legacy `/verify` link, which `/auth/confirm` can't
+    read a session out of — **auth on this hosted project does not fully
+    work yet**, only locally. See the `[remotes.production]` comment in
+    `config.toml` for the exact workaround once SMTP is ready.
   - A real, random `ADMIN_BOOTSTRAP_SECRET` (never the local placeholder)
     in the hosting platform's environment variables.
   - Auth rate limits (`auth.rate_limit` — dashboard-only for hosted

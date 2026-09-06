@@ -57,3 +57,30 @@ content_path = "./supabase/templates/confirmation.html"
 [auth.email.template.recovery]
 subject = "Reset your password"
 content_path = "./supabase/templates/recovery.html"
+
+# Overrides for the hosted C205-prod project (huxclffxxtbhawiajsxm) when
+# running `supabase config push` — everything else (email templates,
+# enable_confirmations, etc.) is inherited from [auth] above unchanged.
+# `supabase start` (local dev) never reads this block; only `config push`
+# does, and only for the project whose ref matches `project_id` below.
+#
+# PLACEHOLDER: replace site_url and additional_redirect_urls with the real
+# production domain once it's known, then re-run `supabase config push`.
+#
+# IMPORTANT: as of 2026-09-06, `config push` to this project rejects the
+# WHOLE auth update (not just the template part) with "Email template
+# modification is not available for free tier projects using the default
+# email provider" whenever [auth.email.template.*] is included — until a
+# custom SMTP provider is configured (Project Settings → Auth → SMTP
+# Settings) or the project is upgraded off the free tier, pushing site_url
+# changes requires temporarily commenting out the two
+# [auth.email.template.*] blocks above, pushing, then restoring them
+# (do NOT leave them commented — that breaks local dev's own /auth/confirm
+# flow). Once SMTP is configured, `config push` should carry the templates
+# through in one step with no special handling.
+[remotes.production]
+project_id = "huxclffxxtbhawiajsxm"
+
+[remotes.production.auth]
+site_url = "https://c205-prod.example.com"
+additional_redirect_urls = ["https://c205-prod.example.com/**"]
