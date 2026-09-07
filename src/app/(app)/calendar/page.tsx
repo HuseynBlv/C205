@@ -8,6 +8,7 @@ import { fixtureAvailability } from "@/lib/fixtures/data";
 import { useFixtures, ROOM_TIMEZONE } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { CalendarView, type CalendarEvent } from "@/components/calendar/calendar-view";
+import type { BusinessHoursInput } from "@fullcalendar/core";
 import type { Tables } from "@/lib/supabase/database.types";
 import { formatInTimeZone } from "date-fns-tz";
 
@@ -17,6 +18,68 @@ import { formatInTimeZone } from "date-fns-tz";
  * right time to a viewer in any browser timezone. */
 function toBakuWallClock(iso: string): string {
   return formatInTimeZone(new Date(iso), ROOM_TIMEZONE, "yyyy-MM-dd'T'HH:mm:ss");
+}
+
+/** Baku-local time-of-day, in minutes since midnight — for the two purely
+ * presentational computations below (the grid's visible hour range, and
+ * which weekdays get shaded "unavailable"). Display only: never used for
+ * any booking/validation decision. */
+function bakuMinutesOfDay(iso: string): number {
+  const [h, m] = formatInTimeZone(new Date(iso), ROOM_TIMEZONE, "HH:mm").split(":").map(Number);
+  return h * 60 + m;
+}
+
+function minutesToTimeString(minutes: number): string {
+  const clamped = Math.max(0, Math.min(24 * 60, minutes));
+  const h = Math.floor(clamped / 60);
+  const m = clamped % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+}
+
+/** The calendar's visible hour range — the earliest start / latest end
+ * across all published windows, padded by an hour and clamped to a sane
+ * bound, rather than an arbitrary fixed 7am-9pm regardless of what's
+ * actually published. Falls back to that same 7am-9pm default when
+ * nothing's published yet. */
+function computeScheduleRange(windows: Tables<"availability_windows">[]): { start: string; end: string } {
+  if (windows.length === 0) return { start: "07:00:00", end: "21:00:00" };
+  let min = Infinity;
+  let max = -Infinity;
+  for (const w of windows) {
+    min = Math.min(min, bakuMinutesOfDay(w.starts_at));
+    max = Math.max(max, bakuMinutesOfDay(w.ends_at));
+  }
+  return {
+    start: minutesToTimeString(Math.min(min - 60, 6 * 60)),
+    end: minutesToTimeString(Math.max(max + 60, 22 * 60)),
+  };
+}
+
+/** One rule per ISO weekday (1=Mon..7=Sun) that has at least one
+ * published window, spanning that weekday's own earliest-start/
+ * latest-end. A weekday with zero windows gets no rule at all, so
+ * FullCalendar shades its entire column with the "unavailable" pattern
+ * (calendar.css's `.fc-non-business`) — an approximation ("where
+ * practical", per spec) since a day with two disjoint windows collapses
+ * into one span, but the precise picture still comes from the actual
+ * availability-window background events painted on top. */
+function computeBusinessHours(windows: Tables<"availability_windows">[]): BusinessHoursInput {
+  const byWeekday = new Map<number, { min: number; max: number }>();
+  for (const w of windows) {
+    const isoDow = Number(formatInTimeZone(new Date(w.starts_at), ROOM_TIMEZONE, "i"));
+    const startMin = bakuMinutesOfDay(w.starts_at);
+    const endMin = bakuMinutesOfDay(w.ends_at);
+    const existing = byWeekday.get(isoDow);
+    byWeekday.set(isoDow, {
+      min: existing ? Math.min(existing.min, startMin) : startMin,
+      max: existing ? Math.max(existing.max, endMin) : endMin,
+    });
+  }
+  return Array.from(byWeekday.entries()).map(([isoDow, { min, max }]) => ({
+    daysOfWeek: [isoDow % 7], // FullCalendar's daysOfWeek is 0=Sun..6=Sat; ISO 7 (Sun) maps to 0
+    startTime: minutesToTimeString(min),
+    endTime: minutesToTimeString(max),
+  }));
 }
 
 function formatWeekday(dateStr: string) {
@@ -85,8 +148,9 @@ async function RealCalendar() {
       start: toBakuWallClock(w.starts_at),
       end: toBakuWallClock(w.ends_at),
       display: "background" as const,
-      backgroundColor: "var(--primary)",
+      backgroundColor: "var(--status-available)",
       title: w.label ?? "Available",
+      extendedProps: { kind: "window" },
     })),
     ...blockRows.map((b) => ({
       start: toBakuWallClock(b.starts_at),
@@ -94,20 +158,24 @@ async function RealCalendar() {
       display: "background" as const,
       backgroundColor: "var(--status-rejected)",
       title: b.reason,
+      extendedProps: { kind: "block" },
     })),
     ...occupancyRows.map((r) => ({
       id: r.id ?? undefined,
       start: r.starts_at ? toBakuWallClock(r.starts_at) : undefined,
       end: r.ends_at ? toBakuWallClock(r.ends_at) : undefined,
-      title: r.status === "APPROVED" ? "Reserved" : "Pending request",
+      title: r.status === "APPROVED" ? "Reserved" : "Pending",
       backgroundColor: r.status === "APPROVED" ? "var(--status-approved)" : "var(--status-pending)",
       borderColor: r.status === "APPROVED" ? "var(--status-approved)" : "var(--status-pending)",
       textColor: "#ffffff",
-      classNames: r.status === "PENDING" ? ["opacity-70"] : [],
+      extendedProps: { kind: r.status === "APPROVED" ? "approved" : "pending" },
     })),
   ];
 
-  return <CalendarView events={events} />;
+  const { start: scheduleStart, end: scheduleEnd } = computeScheduleRange(windowRows);
+  const businessHours = computeBusinessHours(windowRows);
+
+  return <CalendarView events={events} scheduleStart={scheduleStart} scheduleEnd={scheduleEnd} businessHours={businessHours} />;
 }
 
 export default function CalendarPage() {

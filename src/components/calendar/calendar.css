@@ -1,0 +1,243 @@
+/*
+ * Restyles FullCalendar (default toolbar hidden, custom one built in
+ * calendar-view.tsx) into a quieter "living timetable" that fits C205's
+ * navy/warm-off-white system, using FullCalendar's own CSS custom
+ * properties wherever they exist rather than fighting its markup.
+ * Nothing here changes event data, interaction behavior, or timezone
+ * handling — display only.
+ */
+
+.c205-calendar-shell {
+  position: relative;
+}
+
+/* Restrained ambient glow behind the container — a soft wash, not a hero
+   effect. Sits behind the card via negative z-index + overflow-visible
+   parent. */
+.c205-calendar-shell::before {
+  content: "";
+  position: absolute;
+  inset: -1.25rem -1.25rem 0 -1.25rem;
+  height: 10rem;
+  background: radial-gradient(
+    60% 100% at 50% 0%,
+    color-mix(in oklab, var(--cal-accent) 9%, transparent),
+    transparent 75%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+.c205-calendar {
+  position: relative;
+  z-index: 1;
+
+  --fc-border-color: var(--border);
+  --fc-page-bg-color: var(--cal-surface);
+  --fc-neutral-bg-color: var(--muted);
+  --fc-neutral-text-color: var(--muted-foreground);
+  --fc-today-bg-color: transparent;
+  --fc-now-indicator-color: var(--cal-accent);
+  --fc-highlight-color: color-mix(in oklab, var(--cal-accent) 14%, transparent);
+  --fc-small-font-size: 0.6875rem;
+  --fc-non-business-color: transparent;
+
+  background: var(--cal-surface);
+  color: var(--foreground);
+  font-size: 0.8125rem;
+}
+
+/* ---- reduce whitespace ------------------------------------------------ */
+
+.c205-calendar .fc-timegrid-axis-cushion,
+.c205-calendar .fc-timegrid-slot-label-cushion {
+  padding: 0 0.5rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+
+.c205-calendar .fc-timegrid-slot {
+  height: 2rem;
+}
+
+.c205-calendar .fc-daygrid-day-frame {
+  padding: 2px;
+}
+
+.c205-calendar .fc-scrollgrid,
+.c205-calendar .fc-scrollgrid table {
+  border-color: var(--border);
+}
+
+/* ---- grid lines: fine, low contrast ----------------------------------- */
+
+.c205-calendar .fc-timegrid-slot-lane {
+  border-top: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+}
+
+.c205-calendar .fc-timegrid-slot-minor {
+  border-top-style: dotted;
+}
+
+/* ---- weekday headers: quiet cushion (custom content supplies the
+       small-label + big-number layout) ------------------------------- */
+
+.c205-calendar .fc-col-header-cell {
+  background: transparent;
+  border-color: var(--border);
+}
+
+.c205-calendar .fc-col-header-cell-cushion {
+  width: 100%;
+  padding: 0;
+}
+
+/* ---- today: a quiet accent, not a pale-yellow column ------------------ */
+
+.c205-calendar .fc-day-today {
+  background: transparent !important;
+}
+
+.cal-today-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.375rem;
+  height: 1.375rem;
+  border-radius: 9999px;
+  background: var(--cal-accent);
+  color: var(--cal-accent-foreground);
+}
+
+/* ---- now indicator: quieter cobalt line, no bright red ---------------- */
+
+.c205-calendar .fc-timegrid-now-indicator-line {
+  border-color: var(--cal-accent);
+  opacity: 0.65;
+}
+
+.c205-calendar .fc-timegrid-now-indicator-arrow {
+  border-color: transparent;
+  border-left-color: var(--cal-accent);
+  opacity: 0.8;
+}
+
+/* ---- unavailable periods: neutral diagonal hatch, not a flat block ---- */
+
+.c205-calendar .fc-non-business {
+  background-color: color-mix(in oklab, var(--muted) 55%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--foreground) 6%, transparent) 0 7px,
+    transparent 7px 14px
+  );
+}
+
+/* ---- event blocks: rounded, soft depth, never a flat solid rectangle -- */
+
+.c205-calendar .fc-timegrid-event,
+.c205-calendar .fc-daygrid-event {
+  border: none;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px color-mix(in oklab, var(--foreground) 14%, transparent);
+  overflow: hidden;
+}
+
+.c205-calendar .fc-timegrid-event .fc-event-main {
+  padding: 0;
+}
+
+.c205-calendar .fc-daygrid-event {
+  box-shadow: none;
+  padding: 1px 0;
+}
+
+.c205-calendar a.fc-event,
+.c205-calendar a.fc-event:hover {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Background events (published availability / blocks) — solid color,
+   slightly translucent so grid lines stay visible underneath, giving
+   "available" its own quiet identity distinct from the hatch pattern. */
+.c205-calendar .fc-bg-event {
+  opacity: 0.85;
+  border-radius: 0.375rem;
+}
+
+/* ---- custom event content --------------------------------------------- */
+
+.cal-event {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 6px;
+  color: #ffffff;
+  line-height: 1.15;
+}
+
+.cal-event-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cal-event-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: currentColor;
+}
+
+.cal-event-time {
+  font-size: 0.625rem;
+  font-weight: 600;
+  opacity: 0.92;
+  white-space: nowrap;
+}
+
+.cal-event-title {
+  overflow: hidden;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-event-room {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: auto;
+  font-size: 0.5625rem;
+  opacity: 0.85;
+}
+
+.cal-event-compact {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 0.625rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* month view: dot-style events already compact by nature */
+.c205-calendar .fc-daygrid-event .cal-event-compact,
+.c205-calendar .fc-daygrid-event .cal-event {
+  padding: 1px 5px;
+}
+
+/* ---- month view "today" number: filled circle instead of a cell tint -- */
+
+.c205-calendar .fc-daygrid-day-number {
+  padding: 4px 6px;
+}

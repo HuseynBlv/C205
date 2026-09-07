@@ -36,7 +36,7 @@ export function AppShell({
         </div>
       </aside>
 
-      <div className="flex min-h-dvh flex-1 flex-col">
+      <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
         <Topbar navItems={navItems} user={user} onSignOut={onSignOut} />
         <main className="flex-1 px-4 pb-20 pt-5 md:px-8 md:pb-10 md:pt-8">
           <div className="mx-auto w-full max-w-5xl">{children}</div>

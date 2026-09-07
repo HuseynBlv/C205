@@ -96,6 +96,16 @@
   --status-approved-glow: #22c58d;
   --status-rejected: #9c4a44;
   --status-rejected-glow: #b3261e;
+
+  /* Calendar workspace only — a warm off-white surface and a cobalt
+     interactive accent, deliberately distinct from --primary (brand
+     orange, reserved for CTAs) so the schedule reads as its own
+     "living timetable" rather than another orange-accented app screen.
+     Everything else on the calendar (grid lines, status colors) reuses
+     the tokens above directly. */
+  --cal-surface: #faf6ee;
+  --cal-accent: #3457d1;
+  --cal-accent-foreground: #ffffff;
 }
 
 .dark {
@@ -130,6 +140,10 @@
   --sidebar-accent-foreground: #cfe3e8;
   --sidebar-border: color-mix(in oklab, #eef3f3 10%, transparent);
   --sidebar-ring: #e69a4f;
+
+  --cal-surface: #182228;
+  --cal-accent: #7e9dff;
+  --cal-accent-foreground: #101a20;
 }
 
 @layer base {

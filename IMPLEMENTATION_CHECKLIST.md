@@ -1,4 +1,4 @@
-# C205 — Implementation Checklist
+w # C205 — Implementation Checklist
 
 Kept up to date at the end of each step. See `ARCHITECTURE.md` for the
 technical shape behind these items.
@@ -783,6 +783,116 @@ assertions total, 18 new in `060_admin_dashboard.test.sql`):**
   top level): `impact-preview.tsx`'s data-fetching effect called
   `setLoading(true)` synchronously; the fix wraps the whole effect body
   in `Promise.resolve().then(...)`, same pattern as `request-form.tsx`.
+
+## Calendar redesign ✅
+
+Purely visual: no change to reservation logic, API contracts, permissions,
+database structure, or timezone handling. The calendar's data — what
+`calendar/page.tsx` fetches and how it converts UTC to Baku wall-clock
+strings — is untouched; only how it's presented changed.
+
+- **Custom compact header** (`calendar-toolbar.tsx`) replaces
+  FullCalendar's default toolbar (`headerToolbar={false}`): grouped
+  prev/next buttons, a secondary "Today" button with a real active
+  state (bold/filled only when the visible range actually contains
+  today), a quieter date-range label, a reused `Tabs` component as the
+  Week/Month segmented control, and a quiet "Times shown in Asia/Baku"
+  label — all driven purely through the FullCalendar API via a ref
+  (`.prev()`/`.next()`/`.today()`/`.changeView()`), with `datesSet`
+  feeding the range label and active-view state back.
+- **Useful-hour range from real data**: `slotMinTime`/`slotMaxTime` are
+  now computed from the actual earliest-start/latest-end across
+  published availability windows (padded an hour, clamped to a sane
+  bound), not a fixed 7am–9pm regardless of what's published
+  (`computeScheduleRange` in `calendar/page.tsx`).
+- **Per-weekday "unavailable" shading**: `computeBusinessHours` derives
+  one `businessHours` rule per ISO weekday that has at least one
+  published window (that weekday's own earliest/latest hours); a
+  weekday with zero windows gets no rule, so FullCalendar's
+  `.fc-non-business` shades its whole column — restyled in
+  `calendar.css` as a quiet diagonal hatch instead of a flat tint.
+  This only affects the calendar's own visual reference (`rooms.timezone`
+  and the room's actual per-day availability_windows rows) — nothing
+  about what a request is validated against.
+- **Custom event content** for the anonymized occupancy events (never
+  for the availability/block background events, which stay a plain
+  color fill): a status dot, start/end time, "Pending"/"Reserved", and
+  a room icon + `C205` when there's room, collapsing to a single
+  dot+time line for events under ~40 minutes or in month view — driven
+  by a `kind` field (`"window" | "block" | "pending" | "approved"`) now
+  attached to every event's `extendedProps`, a purely presentational
+  discriminator.
+- **Status legend** (`calendar-legend.tsx`): Available/Pending/
+  Reserved/Unavailable, icon + color + label, shown under the calendar
+  on both desktop and mobile.
+- **Mobile: a genuine agenda view, not a squeezed 7-column grid**
+  (`mobile-agenda.tsx`) — a horizontally scrollable date strip (14
+  days, 44px+ touch targets) plus a vertical timeline of the selected
+  day's windows/blocks/reservations, reading the exact same `events`
+  array the desktop view gets (no separate fetch, no different
+  contract). A sticky "Request C205" button sits just above the app
+  shell's own fixed mobile bottom nav (`sticky bottom-20`, not
+  `fixed`, so it never overlaps it).
+- **Design tokens**: two new CSS variables, `--cal-surface` (warm
+  off-white) and `--cal-accent` (cobalt blue), added alongside the
+  existing `--status-*` tokens in `globals.css` (light + dark) —
+  deliberately distinct from `--primary` (brand orange, reserved for
+  CTAs elsewhere) so the calendar reads as its own "living timetable."
+  Every other color (grid lines, status colors, surfaces) reuses
+  existing tokens directly. FullCalendar's own CSS custom-property
+  theming layer (`--fc-border-color`, `--fc-page-bg-color`,
+  `--fc-now-indicator-color`, etc.) is what most of `calendar.css`
+  actually overrides, rather than fighting its markup with `!important`.
+
+### Bugs found and fixed by actually rendering this at each width
+
+- **The now-indicator was silently off by Baku's UTC offset.** FullCalendar's
+  default "now" is the real current instant; in this app's `timeZone="UTC"`
+  display mode (necessary — see `calendar-view.tsx`'s doc comment), that
+  instant is drawn at its *real-UTC* hour, not Baku's, so the line would
+  have shown 4 hours earlier than the actual current Baku time. Existed
+  since Step 3b's original `nowIndicator` addition, never visible before
+  because nothing had scrutinized the indicator's exact position. Fixed
+  with a `now` callback (`fakeBakuNow`) that formats the real current
+  instant into Baku wall-clock and re-labels it UTC, the same trick
+  already used for every event's start/end.
+- **Month view's header briefly showed the week-view's header content**
+  (small weekday label + a date number) instead of a plain weekday name,
+  because `dayHeaderContent`/`dayCellContent` were conditionally swapped
+  between the real renderer and `undefined` based on React's `view` state
+  — which raced with FullCalendar's own internal view-change timing.
+  Fixed by always registering the same callback and having it branch on
+  `arg.view.type` (FullCalendar's own live value for whatever it's
+  actually drawing), never on React state.
+- **A real horizontal-overflow bug in the shared app shell**
+  (`app-shell.tsx`), only ever exposed once a narrow-viewport check was
+  actually run: the content column (`flex min-h-dvh flex-1 flex-col`,
+  a row-flex item) had no `min-w-0`, so at narrow widths its own
+  descendants' content-based minimum width forced the whole page wider
+  than the viewport — a textbook flexbox `min-width: auto` gotcha, not
+  something specific to the calendar (the mobile agenda's own
+  horizontally-scrolling date strip needed the same fix, `min-w-0` on
+  both the strip and its wrapper). No prior page had exercised this
+  edge case; fixed with one `min-w-0` class in the shell plus two in
+  the new calendar components.
+
+### Known gaps after this step
+
+- Not pixel-audited at every intermediate breakpoint — verified at a
+  representative desktop width (1440px), a real narrow-mobile width
+  (~500px CSS px), and via code review for the ~768–1024px tablet
+  range (the `md:` breakpoint switch itself was exercised, just not a
+  live screenshot at e.g. 820px specifically — this session's browser
+  automation's window-resize tool did not reliably resize an
+  already-open tab's rendered viewport; a freshly created tab did pick
+  up the new size).
+- The mobile agenda's date strip shows a fixed 14-day window (2 days
+  back, 11 ahead of today) rather than infinite/lazy-loaded scrolling.
+- `computeBusinessHours`'s per-weekday shading collapses a day with two
+  disjoint windows (e.g. 9–12 and 14–17) into one visual span — a
+  deliberate approximation ("where practical," per the brief); the
+  precise picture still comes from the actual availability-window
+  background events painted on top.
 
 ## Step 5 — Notifications (not started)
 

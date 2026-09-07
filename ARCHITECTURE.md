@@ -410,7 +410,9 @@ Postgres function above, and the pages that use them.
   core doesn't understand named IANA zones without the separate
   `@fullcalendar/moment-timezone` plugin (not installed), and silently
   falls back to the *viewer's own browser zone* otherwise, showing the
-  wrong time to anyone not physically in Baku.
+  wrong time to anyone not physically in Baku. See "Calendar redesign"
+  below for the full custom header/event/mobile-agenda treatment built
+  on top of this same data.
 - **`admin/reservations`** — real pending/decided lists, `Approve`/
   `Reject` buttons calling the Server Actions above, and
   `reservation_conflict_warnings` rendered as badges on pending items.
@@ -423,6 +425,96 @@ Postgres function above, and the pages that use them.
   `@fullcalendar/react` back to `^6.1.21` to match the rest, rather than
   upgrading everything to 7.x (which pulls in a new
   `@full-ui/headless-calendar` peer dependency not worth taking on here).
+
+## Calendar redesign (`src/components/calendar/`)
+
+Purely presentational — `calendar/page.tsx`'s data fetch, the UTC-faking
+timezone trick, and every RLS/query contract above are unchanged. What
+changed is how that same data is drawn.
+
+- **`calendar-toolbar.tsx`** — a compact custom header replacing
+  FullCalendar's own (`headerToolbar={false}` on the `<FullCalendar>`
+  element itself): grouped prev/next, a secondary "Today" button, a
+  quiet range label, the existing `Tabs` component reused as a Week/
+  Month segmented control, and a quiet timezone label. It holds no
+  calendar state — every action calls the FullCalendar API directly
+  through a ref (`calendarRef.current.getApi().prev()/.next()/
+  .today()/.changeView()`), and `datesSet` feeds the range label and
+  "is this the current period" flag back into React state.
+- **`calendar-view.tsx`** — desktop FullCalendar (`hidden md:block`)
+  and the mobile agenda (`md:hidden`) are both always mounted; Tailwind
+  responsive classes pick which one is visible, avoiding any
+  viewport-detection JS and the SSR/hydration mismatches that come
+  with it. Two content-generation callbacks matter here:
+  - `eventContent` renders custom markup (status dot, time, label,
+    room chip) only for occupancy events (`extendedProps.kind` is
+    `"pending"`/`"approved"`) — availability/block background events
+    keep FullCalendar's default (plain color fill, `undefined`
+    returned). Events under ~40 minutes, or any event in month view,
+    collapse to a single dot+time line instead of truncating text.
+  - `dayHeaderContent`/`dayCellContent` render the small-weekday-label
+    + big-date-number header and the "today" filled-circle badge.
+    Both branch on `arg.view.type` (FullCalendar's own live value)
+    rather than being conditionally swapped based on React's `view`
+    state — the latter raced with FullCalendar's internal view-change
+    timing and briefly rendered week-view header content inside month
+    view.
+  - `now={fakeBakuNow}` re-labels the real current instant as Baku
+    wall-clock-but-tagged-UTC, the same trick used for every event's
+    start/end — without it, the now-indicator line would sit at
+    *real-UTC*-now's position, 4 hours off from actual Baku time. A
+    real, previously invisible bug from Step 3b's original
+    `nowIndicator` addition; this is the first thing to scrutinize its
+    exact position.
+- **`calendar.css`** — restyles FullCalendar mostly through its own
+  CSS custom-property theming layer (`--fc-border-color`,
+  `--fc-page-bg-color`, `--fc-now-indicator-color`,
+  `--fc-non-business-color`, etc.) rather than fighting its markup:
+  a warm off-white surface, fine low-contrast grid lines, a quiet
+  cobalt now-indicator, rounded/shadowed event blocks, a diagonal
+  hatch for `.fc-non-business` (unavailable) time, and a restrained
+  radial-gradient glow behind the whole container.
+- **`calendar/page.tsx`** additions — `computeScheduleRange` derives
+  `slotMinTime`/`slotMaxTime` from the actual earliest-start/latest-end
+  across published availability windows (padded, clamped), replacing a
+  fixed 7am–9pm. `computeBusinessHours` derives one `businessHours`
+  rule per ISO weekday that has at least one published window (that
+  weekday's own hours) — a weekday with none gets no rule, so
+  FullCalendar shades its whole column with the hatch pattern via
+  `.fc-non-business`. Both are display-only computations; nothing here
+  changes what a submission is validated against. Every event now
+  also carries `extendedProps.kind` (`"window" | "block" | "pending" |
+  "approved"`) — the discriminator both the desktop custom event
+  content and the mobile agenda read, so neither has to guess status
+  from a background-color string.
+- **`calendar-legend.tsx`** — Available/Pending/Reserved/Unavailable,
+  icon + color + label, under the calendar on both desktop and mobile.
+- **`mobile-agenda.tsx`** — the seven-column week grid never renders
+  below the `md` breakpoint; instead, a horizontally scrollable date
+  strip (14 days, 44px+ touch targets) plus a vertical timeline of the
+  selected day, reading the exact same `events` array as the desktop
+  view. Parses each event's naive datetime string as plain text
+  (`"2026-09-08T09:00:00".split("T")`) rather than constructing a
+  `Date` — a bare ISO-looking string with no offset parses as the
+  *browser's local time* in native JS, which would silently misgroup
+  events for any viewer not in Baku; string-splitting sidesteps the
+  ambiguity entirely rather than fighting it. Its sticky "Request
+  C205" button uses `position: sticky; bottom: 5rem`, not `fixed`,
+  specifically so it settles just above the app shell's own fixed
+  mobile bottom nav instead of overlapping it.
+- **A real, pre-existing responsive bug surfaced and fixed**: the app
+  shell's own content column (`app-shell.tsx`,
+  `flex min-h-dvh flex-1 flex-col`) had no `min-w-0`, so at narrow
+  widths its descendants' content-based minimum width silently forced
+  the whole page wider than the viewport — the classic flexbox
+  "min-width: auto" gotcha. Not specific to the calendar; no earlier
+  page's content had been wide/complex enough to trigger it. Fixed
+  with one `min-w-0` there, plus two more on the mobile agenda's own
+  horizontally-scrolling date strip and its wrapper.
+- Two new tokens in `globals.css`, `--cal-surface` (warm off-white) and
+  `--cal-accent` (cobalt blue), deliberately distinct from `--primary`
+  (brand orange, reserved for CTAs elsewhere) — everything else
+  (status colors, grid lines, borders) reuses existing tokens directly.
 
 ## Administrator dashboard (`supabase/migrations/20260907100000_admin_dashboard.sql`, `src/app/(app)/admin/`)
 
