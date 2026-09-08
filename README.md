@@ -119,6 +119,14 @@ yet, only status changes).
 
 ### Hosted project (for staging/production)
 
+Two separate platforms, two separate jobs: Supabase hosts the database
+and auth backend (steps 1–5 below configure it); it never runs the
+Next.js app itself. The app — pages, server actions, and
+`/api/cron/send-emails` — is deployed to **Vercel** (steps 6–9 assume
+this; `vercel.json` in this repo is Vercel-specific). Environment
+variables in steps 6 and 9 go into Vercel's project settings, not
+Supabase's dashboard.
+
 1. Create a project at [supabase.com](https://supabase.com/dashboard).
 2. `npx supabase login`, then `npx supabase link --project-ref <ref>`.
 3. `npx supabase db push` to apply `supabase/migrations/` to it. **Never
@@ -134,10 +142,11 @@ yet, only status changes).
    configure SMTP for production-volume sending (the built-in sender is
    for development only).
 6. Put that project's URL/anon key and a real, random
-   `ADMIN_BOOTSTRAP_SECRET` in your deployment's environment variables
-   (see `.env.example`) — never commit them. `SUPABASE_SERVICE_ROLE_KEY`
-   isn't currently used by any app code, but keep it out of any
-   client-reachable file if you do add a use for it later.
+   `ADMIN_BOOTSTRAP_SECRET` in **Vercel**'s environment variables
+   (Project Settings → Environment Variables; see `.env.example`) — never
+   commit them. `SUPABASE_SERVICE_ROLE_KEY` isn't currently used by any
+   app code, but keep it out of any client-reachable file if you do add a
+   use for it later.
 7. Use `/admin-setup` (see above) to create the first administrator, then
    `set_usg_notification_email()` to replace the seeded placeholder
    address.
@@ -153,15 +162,17 @@ yet, only status changes).
      verified in Resend's dashboard.
    - Generate `CRON_SECRET` and a separate `EMAIL_WORKER_SECRET`
      (`openssl rand -hex 32` each — never reuse one for the other) and
-     set both in your deployment's environment variables.
+     set both in **Vercel**'s environment variables.
    - As a signed-in admin, run
      `select set_email_worker_secret('<the same EMAIL_WORKER_SECRET value>');`
-     against the hosted project once (Supabase SQL editor, or `psql`).
-   - On Vercel, `vercel.json` already schedules
-     `GET /api/cron/send-emails` every 5 minutes and Vercel supplies the
-     `CRON_SECRET` header automatically. On any other host, point your
-     own scheduler at that route with an
-     `Authorization: Bearer <CRON_SECRET>` header.
+     against the **hosted Supabase project** once (SQL editor, or `psql`)
+     — a different value from whatever your local `.env.local` uses.
+   - `vercel.json` already schedules `GET /api/cron/send-emails` every 5
+     minutes and Vercel supplies the `CRON_SECRET` header automatically —
+     check the Cron Jobs tab in your Vercel project after the first
+     deploy to confirm it registered. Deploying anywhere other than
+     Vercel instead needs your own scheduler sending
+     `Authorization: Bearer <CRON_SECRET>` to that route.
 
 ## Scripts
 
