@@ -297,3 +297,19 @@
 .c205-calendar .fc-daygrid-day-number {
   padding: 4px 6px;
 }
+
+/* ---- month view: an overview, not a squeezed week grid ----------------
+   Raw event chips (both the background availability/block wash and the
+   foreground pending/approved rows) are hidden entirely in month view;
+   dayCellContent (calendar-view.tsx) renders a date number plus a small
+   row of status dots instead — "small indicators", never per-event text,
+   per the interactivity brief. Week/day views are untouched (scoped to
+   .fc-dayGridMonth-view only). */
+.c205-calendar .fc-dayGridMonth-view .fc-daygrid-day-frame .fc-daygrid-day-events,
+.c205-calendar .fc-dayGridMonth-view .fc-bg-event {
+  display: none;
+}
+
+.c205-calendar .fc-dayGridMonth-view .fc-daygrid-day-frame {
+  cursor: pointer;
+}

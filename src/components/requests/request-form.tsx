@@ -24,6 +24,7 @@ import { TimeSlotPicker, SlotStatusLegend } from "@/components/booking/time-slot
 import { useSlotTravelGlow } from "@/components/booking/use-slot-travel-glow";
 import { useRefreshOnFocus } from "@/lib/hooks/use-refresh-on-focus";
 import { PreviewNotice } from "@/components/shared/preview-notice";
+import { NavButton } from "@/components/shared/nav-button";
 import { fixtureAvailability } from "@/lib/fixtures/data";
 import { ROOM_NAME, ROOM_TIMEZONE, useFixtures } from "@/lib/config";
 import { cn } from "@/lib/utils";
@@ -114,7 +115,7 @@ export function RequestForm({
    * against live data regardless of how the fields got filled in. */
   initialSelection?: RequestFormInitialSelection;
 }) {
-  const [submitted, setSubmitted] = useState<RequestValues | null>(null);
+  const [submitted, setSubmitted] = useState<(RequestValues & { id?: string }) | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [refreshedAfterError, setRefreshedAfterError] = useState(false);
   const summaryTimeRef = useRef<HTMLDivElement>(null);
@@ -277,7 +278,7 @@ export function RequestForm({
       void loadDay(formValues.date).then(() => setRefreshedAfterError(true));
       return;
     }
-    setSubmitted(formValues);
+    setSubmitted({ ...formValues, id: result.data.id });
   });
 
   if (submitted) {
@@ -311,16 +312,23 @@ export function RequestForm({
               ? "This is a fixture preview — no request was actually created. In the finished system USG would be notified and you'd get an email as soon as a decision is made."
               : "USG has been notified and you'll receive an email as soon as a decision is made."}
           </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setSubmitted(null);
-              reset();
-            }}
-          >
-            {useFixtures ? "Start another preview" : "Submit another request"}
-          </Button>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSubmitted(null);
+                reset();
+              }}
+            >
+              {useFixtures ? "Start another preview" : "Submit another request"}
+            </Button>
+            {!useFixtures && submitted.id ? (
+              <NavButton variant="secondary" size="sm" href={`/calendar?event=${submitted.id}`}>
+                View on calendar
+              </NavButton>
+            ) : null}
+          </div>
         </CardContent>
       </Card>
     );

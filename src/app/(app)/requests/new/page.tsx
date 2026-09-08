@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { RequestForm } from "@/components/requests/request-form";
 import { ROOM_NAME } from "@/lib/config";
@@ -33,6 +35,13 @@ export default async function NewRequestPage({
 
   return (
     <div className="mx-auto max-w-xl">
+      <Link
+        href="/calendar"
+        className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="size-3.5" aria-hidden="true" />
+        Back to calendar
+      </Link>
       <PageHeader
         title={`Request ${ROOM_NAME}`}
         description="Fill in the date, time, purpose, and participant count."

@@ -5,7 +5,7 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
-import interactionPlugin from "@fullcalendar/interaction";
+import interactionPlugin, { type DateClickArg } from "@fullcalendar/interaction";
 import type {
   BusinessHoursInput,
   DateSelectArg,
@@ -22,10 +22,11 @@ import { formatInTimeZone } from "date-fns-tz";
 import { cn } from "@/lib/utils";
 import { ROOM_NAME, ROOM_TIMEZONE } from "@/lib/config";
 import { roomLocalToUtcIso } from "@/lib/booking/timezone";
-import { mapBookingError } from "@/lib/booking/errors";
-import { evaluateRequestedRange } from "@/lib/booking/slot-status";
-import { getDayAvailabilityAction } from "@/lib/booking/availability-query";
+import { evaluateTimeSelection } from "@/lib/booking/selection-evaluation";
+import { computeDaySummary, type DaySummary } from "@/lib/booking/day-availability-client";
+import { findNextAvailableSlot, type NextAvailableSlot } from "@/lib/booking/next-available";
 import { CalendarToolbar, type CalendarViewType } from "@/components/calendar/calendar-toolbar";
+import { CalendarDaySummary } from "@/components/calendar/calendar-day-summary";
 import { CalendarLegend } from "@/components/calendar/calendar-legend";
 import { MobileAgenda } from "@/components/calendar/mobile-agenda";
 import { ReservationPanel, type ReservationFallback } from "@/components/calendar/reservation-panel";
@@ -34,9 +35,34 @@ import "@/components/calendar/calendar.css";
 
 export type CalendarEvent = EventInput;
 
-function timeToMinutes(hhmm: string): number {
-  const [h, m] = hhmm.split(":").map(Number);
-  return h * 60 + m;
+const VIEW_STORAGE_KEY = "c205.calendar.view";
+
+interface StoredView {
+  view: CalendarViewType;
+  date: string;
+}
+
+function readStoredView(): StoredView | null {
+  try {
+    const raw = window.localStorage.getItem(VIEW_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StoredView>;
+    if (parsed.view !== "timeGridWeek" && parsed.view !== "dayGridMonth") return null;
+    if (typeof parsed.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(parsed.date)) return null;
+    return { view: parsed.view, date: parsed.date };
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredView(value: StoredView) {
+  try {
+    window.localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify(value));
+  } catch {
+    // Private browsing / storage disabled — remembering the view is a
+    // convenience, not a requirement, so a write failure is silently
+    // ignored rather than surfaced anywhere.
+  }
 }
 
 function formatEventTimeRange(start: Date | null, end: Date | null): string {
@@ -115,8 +141,20 @@ export function CalendarView({
   const [hoverPreview, setHoverPreview] = useState<HoverPreview | null>(null);
   const [selection, setSelection] = useState<CalendarSelection | null>(null);
   const prevSelectedEventIdRef = useRef<string | null>(null);
+  const explicitFocusRef = useRef<string | null>(null);
 
   const todayBakuKey = formatInTimeZone(new Date(), ROOM_TIMEZONE, "yyyy-MM-dd");
+  const [focusedDate, setFocusedDate] = useState(todayBakuKey);
+
+  // "Now" lives in state, refreshed via effect, rather than calling
+  // Date.now() directly during render (react-hooks/purity) — same pattern
+  // used throughout this project (e.g. request-form.tsx's live preview).
+  const [nowMs, setNowMs] = useState<number | null>(null);
+  useEffect(() => {
+    void Promise.resolve().then(() => setNowMs(Date.now()));
+    const id = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   function isSameBakuDay(date: Date): boolean {
     return date.toISOString().slice(0, 10) === todayBakuKey;
@@ -125,6 +163,57 @@ export function CalendarView({
   function fakeBakuNow(): Date {
     return new Date(`${formatInTimeZone(new Date(), ROOM_TIMEZONE, "yyyy-MM-dd'T'HH:mm:ss")}Z`);
   }
+
+  // Restore the last view/date this device looked at (localStorage — a
+  // per-device convenience, nothing server-side). Deferred to a mount
+  // effect rather than an `initialView`/`initialDate` prop: those need a
+  // value before FullCalendar's first client render, and reading
+  // localStorage there would differ between server- and client-rendered
+  // output. The one-time visible snap from "this week" to the restored
+  // view is an accepted trade-off for staying SSR-safe.
+  useEffect(() => {
+    const stored = readStoredView();
+    if (!stored) return;
+    calendarRef.current?.getApi().changeView(stored.view, stored.date);
+  }, []);
+
+  const daySummaryFor = useMemo(() => {
+    // Elapsed-minutes-since-midnight must come from Baku's own wall clock
+    // (formatInTimeZone), not ms arithmetic against a UTC-parsed "T00:00:00Z"
+    // string — that string is Baku's 4am, not its midnight, and using it
+    // directly silently shifted every "now" cutoff by the zone's offset
+    // (caught live: the day summary read "9:58 AM" while the grid's own
+    // now-indicator correctly sat near 2pm).
+    const nowBakuMinutes =
+      nowMs !== null
+        ? Number(formatInTimeZone(nowMs, ROOM_TIMEZONE, "H")) * 60 + Number(formatInTimeZone(nowMs, ROOM_TIMEZONE, "m"))
+        : undefined;
+    return (dateStr: string): DaySummary => {
+      const elapsed = dateStr === todayBakuKey ? nowBakuMinutes : undefined;
+      return computeDaySummary(events, dateStr, elapsed);
+    };
+  }, [events, nowMs, todayBakuKey]);
+
+  const focusedSummary = useMemo(() => daySummaryFor(focusedDate), [daySummaryFor, focusedDate]);
+
+  const nextAvailable: NextAvailableSlot | null = useMemo(
+    () => (nowMs === null ? null : findNextAvailableSlot(events, nowMs)),
+    [events, nowMs],
+  );
+
+  // One summary per date that has any published window/reservation —
+  // computed once per `events` change, looked up per month-view cell
+  // (dayCellContent below) rather than recomputed per cell.
+  const monthSummaries = useMemo(() => {
+    const dates = new Set<string>();
+    for (const ev of events) {
+      const start = typeof ev.start === "string" ? ev.start.slice(0, 10) : undefined;
+      if (start) dates.add(start);
+    }
+    const map = new Map<string, DaySummary>();
+    for (const date of dates) map.set(date, daySummaryFor(date));
+    return map;
+  }, [events, daySummaryFor]);
 
   // The minimal, already-privacy-safe fields for whichever event is
   // currently selected — derived from `events` (sourced from
@@ -157,7 +246,19 @@ export function CalendarView({
   }
 
   function closeEvent() {
-    router.back();
+    // A deterministic push to the event-less URL, not router.back(): a
+    // panel opened via a deep link (e.g. the request form's "View on
+    // calendar", which pushes straight to "?event=<id>" with no plain
+    // "/calendar" entry beneath it in history) would otherwise send the
+    // in-app close button back to whatever page preceded that link —
+    // caught live by actually using "View on calendar" and closing the
+    // panel, not by reasoning about it. The *browser's own* back/forward
+    // buttons are unaffected: they update the URL via popstate directly,
+    // a separate path from this function entirely.
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("event");
+    const query = params.toString();
+    router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }
 
   // Return focus to the reservation that was open once the panel closes
@@ -177,7 +278,8 @@ export function CalendarView({
   }, [selectedEventId]);
 
   function handleDatesSet(arg: DatesSetArg) {
-    setView(arg.view.type as CalendarViewType);
+    const nextView = arg.view.type as CalendarViewType;
+    setView(nextView);
     if (arg.view.type === "dayGridMonth") {
       setRangeLabel(
         new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "long", year: "numeric" }).format(
@@ -192,7 +294,34 @@ export function CalendarView({
       setRangeLabel(`${fmt.format(start)} – ${fmt.format(end)}, ${year}`);
     }
     const todayFake = new Date(`${todayBakuKey}T12:00:00Z`);
-    setIsCurrentPeriod(todayFake >= arg.view.currentStart && todayFake < arg.view.currentEnd);
+    const currentPeriod = todayFake >= arg.view.currentStart && todayFake < arg.view.currentEnd;
+    setIsCurrentPeriod(currentPeriod);
+    // A dateClick or "Next available" jump already set exactly the date the
+    // user meant to focus on — this datesSet firing right after (from the
+    // resulting changeView call) must not clobber it back to "today" just
+    // because today also happens to fall inside the resulting week.
+    if (explicitFocusRef.current) {
+      explicitFocusRef.current = null;
+    } else {
+      setFocusedDate(currentPeriod ? todayBakuKey : arg.view.currentStart.toISOString().slice(0, 10));
+    }
+    writeStoredView({ view: nextView, date: arg.view.currentStart.toISOString().slice(0, 10) });
+
+    // Bring "now" (or, failing that, the start of published hours) into
+    // view without requiring a manual scroll — only meaningful in the
+    // week view, and only once the grid has actually painted. `smooth`
+    // is an explicit scrollIntoView option, so it overrides the global
+    // `prefers-reduced-motion` CSS rule (globals.css) rather than being
+    // caught by it — checked directly here instead.
+    if (nextView === "timeGridWeek") {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      requestAnimationFrame(() => {
+        const anchor =
+          document.querySelector(".c205-calendar .fc-timegrid-now-indicator-arrow") ??
+          document.querySelector(".c205-calendar .fc-timegrid-slot");
+        anchor?.scrollIntoView({ block: "center", behavior: reduceMotion ? "instant" : "smooth" });
+      });
+    }
   }
 
   function goPrev() {
@@ -206,6 +335,20 @@ export function CalendarView({
   }
   function changeView(next: CalendarViewType) {
     calendarRef.current?.getApi().changeView(next);
+  }
+
+  function jumpToNextAvailable(slot: NextAvailableSlot) {
+    explicitFocusRef.current = slot.date;
+    setFocusedDate(slot.date);
+    calendarRef.current?.getApi().changeView("timeGridWeek", slot.date);
+  }
+
+  function handleDateClick(arg: DateClickArg) {
+    if (arg.view.type !== "dayGridMonth") return;
+    const dateStr = arg.date.toISOString().slice(0, 10);
+    explicitFocusRef.current = dateStr;
+    setFocusedDate(dateStr);
+    calendarRef.current?.getApi().changeView("timeGridWeek", dateStr);
   }
 
   function handleEventClick(info: EventClickArg) {
@@ -271,60 +414,7 @@ export function CalendarView({
       return;
     }
 
-    const startsAtIso = roomLocalToUtcIso(dateStr, startTime);
-    const endsAtIso = roomLocalToUtcIso(dateStr, endTime);
-
-    if (new Date(startsAtIso).getTime() < Date.now()) {
-      setSelection({
-        date: dateStr,
-        startTime,
-        endTime,
-        blockedReason: "That time has already passed — pick a time in the future.",
-        note: null,
-      });
-      return;
-    }
-
-    if (!roomId) {
-      setSelection({
-        date: dateStr,
-        startTime,
-        endTime,
-        blockedReason: `${ROOM_NAME} isn't configured yet. Contact an administrator.`,
-        note: null,
-      });
-      return;
-    }
-
-    const dayResult = await getDayAvailabilityAction({ roomId, date: dateStr });
-    if (!dayResult.ok) {
-      setSelection({ date: dateStr, startTime, endTime, blockedReason: dayResult.error, note: null });
-      return;
-    }
-
-    const evaluation = evaluateRequestedRange(dayResult.data, timeToMinutes(startTime), timeToMinutes(endTime), {
-      startsAtMs: new Date(startsAtIso).getTime(),
-      endsAtMs: new Date(endsAtIso).getTime(),
-      nowMs: Date.now(),
-    });
-
-    if (evaluation.code === "OUTSIDE_AVAILABILITY" || evaluation.code === "RESERVATION_CONFLICT") {
-      setSelection({ date: dateStr, startTime, endTime, blockedReason: mapBookingError(evaluation.code), note: null });
-      return;
-    }
-
-    setSelection({
-      date: dateStr,
-      startTime,
-      endTime,
-      blockedReason: null,
-      note:
-        evaluation.code === "ADVANCE_NOTICE_REQUIRED"
-          ? mapBookingError("ADVANCE_NOTICE_REQUIRED")
-          : evaluation.overlapsPending
-            ? "This overlaps another pending request — you can still request it; USG decides in submission order."
-            : null,
-    });
+    setSelection(await evaluateTimeSelection({ roomId, date: dateStr, startTime, endTime }));
   }
 
   function dismissSelection() {
@@ -335,10 +425,11 @@ export function CalendarView({
   function renderEventContent(arg: EventContentArg) {
     const kind = arg.event.extendedProps?.kind as string | undefined;
     if (kind !== "pending" && kind !== "approved") return undefined; // background events: default rendering (color only)
+    if (arg.view.type === "dayGridMonth") return undefined; // month view: dot indicators in dayCellContent instead
 
     const durationMinutes =
       arg.event.start && arg.event.end ? (arg.event.end.getTime() - arg.event.start.getTime()) / 60000 : 0;
-    const compact = arg.view.type === "dayGridMonth" || (durationMinutes > 0 && durationMinutes < 40);
+    const compact = durationMinutes > 0 && durationMinutes < 40;
 
     if (compact) {
       return (
@@ -392,18 +483,36 @@ export function CalendarView({
     );
   }
 
+  // Month view: a date number plus a compact row of colored dots — never
+  // per-event text (see calendar.css, which hides raw event chips in
+  // month view entirely) — "3 open" would still be too busy across 42
+  // cells, so this stays dot-only, with the fuller wording reserved for
+  // CalendarDaySummary above the grid.
   function dayCellContent(arg: DayCellContentArg) {
     if (arg.view.type !== "dayGridMonth") return undefined;
     const today = isSameBakuDay(arg.date);
+    const dateKey = arg.date.toISOString().slice(0, 10);
+    const summary = monthSummaries.get(dateKey);
     return (
-      <span
-        className={cn(
-          "flex size-6 items-center justify-center rounded-full text-xs font-medium",
-          today ? "cal-today-badge" : arg.isOther ? "text-muted-foreground/50" : "text-foreground",
-        )}
-      >
-        {arg.dayNumberText.replace(/\D/g, "")}
-      </span>
+      <div className="flex h-full flex-col items-center gap-1 pt-0.5">
+        <span
+          className={cn(
+            "flex size-6 items-center justify-center rounded-full text-xs font-medium",
+            today ? "cal-today-badge" : arg.isOther ? "text-muted-foreground/50" : "text-foreground",
+          )}
+        >
+          {arg.dayNumberText.replace(/\D/g, "")}
+        </span>
+        {summary && (summary.hasWindows || summary.pendingCount > 0 || summary.approvedCount > 0) ? (
+          <span className="flex items-center gap-1" aria-hidden="true">
+            {summary.hasWindows && summary.openRanges.length > 0 ? (
+              <span className="size-1.5 rounded-full bg-[var(--status-available)]" />
+            ) : null}
+            {summary.pendingCount > 0 ? <span className="size-1.5 rounded-full bg-[var(--status-pending)]" /> : null}
+            {summary.approvedCount > 0 ? <span className="size-1.5 rounded-full bg-[var(--status-approved)]" /> : null}
+          </span>
+        ) : null}
+      </div>
     );
   }
 
@@ -412,15 +521,25 @@ export function CalendarView({
       {selection ? <SelectionPanel selection={selection} onDismiss={dismissSelection} /> : null}
 
       <div className="hidden md:block">
-        <CalendarToolbar
-          rangeLabel={rangeLabel}
-          view={view}
-          isCurrentPeriod={isCurrentPeriod}
-          onPrev={goPrev}
-          onNext={goNext}
-          onToday={goToday}
-          onChangeView={changeView}
+        <div className="sticky top-0 z-20 bg-background pb-1">
+          <CalendarToolbar
+            rangeLabel={rangeLabel}
+            view={view}
+            isCurrentPeriod={isCurrentPeriod}
+            onPrev={goPrev}
+            onNext={goNext}
+            onToday={goToday}
+            onChangeView={changeView}
+          />
+        </div>
+
+        <CalendarDaySummary
+          dateStr={focusedDate}
+          summary={focusedSummary}
+          nextAvailable={nextAvailable}
+          onJumpToNextAvailable={jumpToNextAvailable}
         />
+
         <div className="c205-calendar-shell">
           <div className="c205-calendar rounded-xl border border-border p-2 shadow-sm">
             <FullCalendar
@@ -442,6 +561,7 @@ export function CalendarView({
               selectable
               views={{ dayGridMonth: { selectable: false } }}
               select={handleSelect}
+              dateClick={handleDateClick}
               eventClick={handleEventClick}
               eventDidMount={eventDidMount}
               eventClassNames={(arg) => (arg.event.id === selectedEventId ? ["cal-event-selected"] : [])}
@@ -466,7 +586,14 @@ export function CalendarView({
       </div>
 
       <div className="min-w-0 md:hidden">
-        <MobileAgenda events={events} onSelectEvent={openEvent} />
+        <MobileAgenda
+          events={events}
+          roomId={roomId}
+          selectedDate={focusedDate}
+          onSelectedDateChange={setFocusedDate}
+          onSelectEvent={openEvent}
+          onSelectionResult={setSelection}
+        />
       </div>
 
       <CalendarLegend className="mt-3" />

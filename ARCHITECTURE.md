@@ -606,6 +606,145 @@ once a row has already cleared RLS.
   clears via the panel's own dismiss button, a new selection, or
   navigating away.
 
+## Calendar UX improvements (`src/lib/booking/{day-availability-client,next-available,selection-evaluation}.ts`, `src/components/calendar/`)
+
+A discoverability/feedback/navigation pass on the calendar interactivity
+section above. No business rule changed; every gating decision still
+goes through the exact same `getDayAvailabilityAction` +
+`evaluateRequestedRange` path — the additions here are either purely
+informational (derived from data already on the client) or navigation
+conveniences (view memory, deep links).
+
+- **`day-availability-client.ts`** — pure functions turning the
+  calendar's already-fetched `events` (windows/blocks/anonymized
+  occupancy) into per-date rollups, entirely client-side, no server
+  round trip: `computeDaySummary` (open ranges after subtracting blocks
+  and approved reservations — never pending, which is an overlay, not a
+  block — clamped to not-yet-elapsed time when the date is today) for
+  the day-summary line and month-view dots; `buildDayAvailabilityFromEvents`
+  (the fuller `DayAvailability` shape `slot-status.ts` already defines)
+  for the mobile tap-to-select picker's live per-slot coloring;
+  `datesWithWindows` for scanning candidates. Explicitly never the
+  authority for whether a range can be booked — it can be up to the
+  calendar's own 60s refresh interval stale, fine for a passive summary,
+  not for a gating decision.
+- **`next-available.ts`**'s `findNextAvailableSlot` scans only the
+  (small, already-known) set of dates with a published window for the
+  earliest open gap from "now," reusing `computeDaySummary` per
+  candidate date rather than a day-by-day server scan.
+- **`selection-evaluation.ts`**'s `evaluateTimeSelection` is
+  `calendar-view.tsx`'s old inline `handleSelect` validation, extracted
+  so the desktop drag-select grid and the new mobile tap-to-select flow
+  (`mobile-agenda.tsx`) call the identical revalidation — always a fresh
+  `getDayAvailabilityAction` call, never the client's own `events` —
+  producing the same `CalendarSelection` shape `SelectionPanel` renders
+  either way.
+- **`CalendarDaySummary`** (new component) renders one "focused" date's
+  status in three distinct copy paths — no published window at all
+  ("isn't open"), a window with nothing left to book ("fully booked" +
+  counts), or real open time (+ "no reservations yet" vs. actual
+  pending/approved counts) — so "nothing booked" and "room unavailable"
+  never read the same way. `focusedDate` lives in `CalendarView`,
+  auto-derived from navigation (today if visible, else the range's first
+  day) except when a month-view `dateClick` or the "Next available"
+  action sets it explicitly — tracked via an `explicitFocusRef` so the
+  `datesSet` callback that fires right after doesn't immediately
+  override an explicit choice back to "today" (a real bug, see below).
+- **View memory**: `calendar-view.tsx` persists `{view, date}` to
+  `localStorage` on every `datesSet` and restores it in a mount effect
+  (not `initialView`/`initialDate`, to stay SSR-safe — this causes one
+  accepted visible snap from the default "this week" to the restored
+  view rather than an SSR/hydration mismatch risk). This single
+  mechanism satisfies both "remember the last view on this device" and
+  "return to the previously viewed week after closing a request": the
+  latter is really just this component remounting after a round trip
+  through `/requests/new` and reading the same stored value back. The
+  reservation *details* panel needs no such handling — it's a `?event=`
+  query param on the same route, so the view is never disturbed by
+  opening/closing it.
+- **Month view as an overview**: `dayCellContent`'s month branch now
+  renders a date number plus up to three small status dots from a
+  once-per-`events`-change `Map<date, DaySummary>` (`monthSummaries` in
+  `calendar-view.tsx`); `calendar.css` hides every raw event chip in
+  month view (`.fc-dayGridMonth-view .fc-daygrid-day-events`,
+  `.fc-bg-event { display: none }`) so the dots are the only content —
+  no per-event text at month granularity. A `dateClick` handler (guarded
+  to `dayGridMonth` only, the same `arg.view.type` branching pattern
+  `dayHeaderContent`/`dayCellContent` already used) switches to the week
+  view anchored on the clicked date.
+- **Sticky toolbar + scroll-to-now**: the desktop toolbar wrapper is now
+  `sticky top-0` (desktop has no other sticky top bar to conflict with —
+  that's mobile-only, `Topbar`'s own `md:hidden`). Entering the week view
+  scrolls FullCalendar's own now-indicator arrow (or, absent one, the
+  grid's first slot, already anchored near the earliest published hour
+  by the existing `computeScheduleRange`) into view via a plain DOM
+  `scrollIntoView` — `height="auto"` means the calendar has no internal
+  scroll container of its own, so this scrolls the page.
+- **Mobile flow**: `mobile-agenda.tsx` gained a genuine tap-to-select
+  path — tapping an "Available" timeline entry expands inline Start/End
+  `TimeSlotPicker`s (the same shared, tap-friendly, no-drag control the
+  request form uses) defaulting to "now rounded up" through a clamped
+  1-hour span, and "Review time" calls the same `evaluateTimeSelection`
+  desktop uses. `SelectionPanel` itself is now responsive
+  (`useMediaQuery`): the existing inline banner on desktop, a genuine
+  `Sheet` (`side="bottom"`) on mobile — the brief's exact "summary bottom
+  sheet" step. `focusedDate` (the date strip's selection) was lifted out
+  of `MobileAgenda` into `CalendarView`, so desktop's day summary and
+  mobile's timeline share one notion of "the day being looked at."
+- **`NavButton`** (`components/shared/nav-button.tsx`) wraps every
+  "start a request" entry point (header/mobile "Request C205,"
+  "Continue to request," the post-submit "View on calendar") in a
+  `router.push` guarded by `useTransition`'s pending state, so a rapid
+  double click/tap can't fire the navigation twice. `request-form.tsx`
+  now also carries the created reservation's id through to its success
+  screen for that last link.
+
+### Bugs found and fixed by actually running this step
+
+- **A timezone bug in the day summary's "elapsed minutes" calculation**:
+  computed as raw ms arithmetic against `Date.parse(dateStr +
+  "T00:00:00Z")` — but that instant is Baku's *4am*, not its midnight
+  (Baku is UTC+4), so every "now" cutoff was silently off by the zone's
+  exact offset. Caught by comparing the summary's own displayed time
+  against the grid's own now-indicator line position. Fixed by deriving
+  elapsed minutes from `formatInTimeZone`'s own Baku wall-clock
+  hour/minute, the pattern already used everywhere else in this file.
+- **A month-view `dateClick` could have its explicit focus immediately
+  overwritten**: the `datesSet` callback that fires right after the
+  resulting `changeView` unconditionally re-derives `focusedDate` from
+  "is today visible in this range" — so clicking a date in the same week
+  as today snapped the summary back to today. Fixed with an
+  `explicitFocusRef` consumed (and cleared) by the very next
+  `datesSet`, rather than that callback always winning.
+- **"Next available" could point "backwards"**: it originally showed
+  whenever the globally-next slot's date differed from the focused
+  date, which fired even when the focused day already had plenty of
+  open time and the "next" slot was actually on an earlier, already-
+  visible date. Fixed by keying the action purely on the focused day's
+  own open-range emptiness.
+- **Closing the reservation panel via `router.back()` could land on the
+  wrong page**: correct for a panel opened by clicking an event on
+  `/calendar` itself, but the new "View on calendar" link pushes
+  straight to `/calendar?event=<id>` with no plain `/calendar` entry
+  beneath it in history — so the in-app close button sent the user to
+  whatever preceded that link (the just-submitted request form) instead.
+  Fixed by having `closeEvent` push a deterministic event-less URL
+  rather than relying on history depth; real browser back/forward are
+  unaffected (a separate, `popstate`-driven path).
+- **The mobile picker's pre-selected default could be scrolled out of
+  view**: "now rounded up" often lands mid-row in the 7am–9pm option
+  list, off-screen at the picker's initial scroll position. Fixed with a
+  `scrollIntoView` effect on the shared `TimeSlotPicker` keyed on
+  `value` — also benefits the request form's own picker after a
+  calendar-selection prefill.
+- **The new scroll-to-now effect ignored `prefers-reduced-motion`**: it
+  passes `behavior: "smooth"` directly to `scrollIntoView`, which, as an
+  explicit JS option, overrides the project's existing global
+  `prefers-reduced-motion` CSS rule (a universal
+  `transition-duration`/`animation-duration` override with no power over
+  a JS-specified scroll behavior). Fixed by checking
+  `window.matchMedia("(prefers-reduced-motion: reduce)")` directly.
+
 ## Administrator dashboard (`supabase/migrations/20260907100000_admin_dashboard.sql`, `src/app/(app)/admin/`)
 
 The Step 3a/3b booking engine covered submit/approve/reject/cancel and

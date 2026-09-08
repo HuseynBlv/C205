@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Ban, Check, Clock, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { generateTimeOptions } from "@/lib/time-options";
@@ -52,8 +53,25 @@ export function TimeSlotPicker({
   getStatus?: (value: string) => SlotStatus;
   "aria-label"?: string;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // A pre-selected value (e.g. the mobile tap-to-select flow's "now
+  // rounded up" default, or a prefilled request-form value) can easily
+  // land outside the initially-visible slice of this horizontally
+  // scrolling row — reveal it instead of leaving the picker looking
+  // empty until the user happens to scroll. `"instant"` avoids an
+  // unnecessary animated scroll firing on every keystroke elsewhere on
+  // the page that happens to re-render this component with same value.
+  useEffect(() => {
+    if (!value) return;
+    listRef.current
+      ?.querySelector<HTMLElement>(`[data-value="${value}"]`)
+      ?.scrollIntoView({ block: "nearest", inline: "center", behavior: "instant" });
+  }, [value]);
+
   return (
     <div
+      ref={listRef}
       role="listbox"
       aria-label={ariaLabel}
       className="flex gap-1.5 overflow-x-auto rounded-lg border border-border bg-muted/40 p-1.5"
@@ -69,6 +87,7 @@ export function TimeSlotPicker({
             key={option.value}
             type="button"
             role="option"
+            data-value={option.value}
             aria-selected={selected}
             aria-label={meta ? `${option.label} — ${meta.label}` : option.label}
             title={meta?.label}

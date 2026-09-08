@@ -6,8 +6,9 @@ import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { AutoRefresh } from "@/components/shared/auto-refresh";
 import { CalendarLoadingState } from "@/components/states/loading-state";
+import { NavButton } from "@/components/shared/nav-button";
 import { fixtureAvailability } from "@/lib/fixtures/data";
-import { useFixtures, ROOM_TIMEZONE } from "@/lib/config";
+import { useFixtures, ROOM_NAME, ROOM_TIMEZONE } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { CalendarView, type CalendarEvent } from "@/components/calendar/calendar-view";
 import type { BusinessHoursInput } from "@fullcalendar/core";
@@ -199,7 +200,13 @@ export default function CalendarPage() {
       <PageHeader
         title="Calendar"
         description={`Published availability for C205 · times shown in ${ROOM_TIMEZONE}`}
+        actions={
+          <NavButton href="/requests/new" className="hidden sm:inline-flex">
+            Request {ROOM_NAME}
+          </NavButton>
+        }
       />
+      <p className="mb-4 text-sm text-muted-foreground">Select an available time to begin a request.</p>
 
       {useFixtures ? <FixtureCalendar /> : <RealCalendar />}
     </div>
