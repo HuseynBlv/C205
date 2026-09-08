@@ -1,11 +1,21 @@
 import Link from "next/link";
 import { SiteHeader } from "@/components/marketing/site-header";
 import { BrandMark } from "@/components/layout/brand-mark";
+import { getVerifiedUser } from "@/lib/auth/dal";
+import { useFixtures } from "@/lib/config";
 
-export default function MarketingLayout({ children }: { children: React.ReactNode }) {
+export default async function MarketingLayout({ children }: { children: React.ReactNode }) {
+  // A visitor arriving here via the app shell's own brand-mark link (see
+  // app-shell.tsx/topbar.tsx) is, by definition, already signed in — this
+  // page must recognize that rather than greeting them with "Sign in" /
+  // "Create account" as if they were logged out. Skipped under fixtures
+  // (no real backend to check against, same guard every other page in
+  // this app uses before calling Supabase).
+  const user = useFixtures ? null : await getVerifiedUser();
+
   return (
     <div className="flex min-h-dvh flex-col bg-background">
-      <SiteHeader />
+      <SiteHeader isAuthenticated={Boolean(user)} />
       <main className="flex-1 pt-16">{children}</main>
       <footer className="border-t border-white/10 bg-[#172e35] text-[#c7d2d5]">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-10 md:flex-row md:items-start md:justify-between md:px-8">
@@ -17,9 +27,11 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
             <Link href="/requests/new" className="hover:text-white">
               Request C205
             </Link>
-            <Link href="/login" className="hover:text-white">
-              Sign in
-            </Link>
+            {!user ? (
+              <Link href="/login" className="hover:text-white">
+                Sign in
+              </Link>
+            ) : null}
           </div>
         </div>
         <div className="border-t border-white/10 px-4 py-4 text-center text-xs text-[#93a5ab] md:px-8">

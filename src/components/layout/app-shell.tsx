@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { BrandMark } from "@/components/layout/brand-mark";
 import { SidebarNavGroup } from "@/components/layout/sidebar-nav";
 import { UserMenu } from "@/components/layout/user-menu";
@@ -23,7 +24,9 @@ export function AppShell({
     <div className="flex min-h-dvh bg-background">
       <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
         <div className="border-b border-sidebar-border px-4 py-4">
-          <BrandMark tone="dark" />
+          <Link href="/" aria-label="Go to the C205 home page" className="block w-fit">
+            <BrandMark tone="dark" />
+          </Link>
         </div>
         <div className="flex-1 space-y-6 overflow-y-auto px-3 py-5">
           <SidebarNavGroup title="Workspace" items={primaryNavItems} />

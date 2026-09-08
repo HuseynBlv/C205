@@ -1227,6 +1227,42 @@ decision itself.
   only because it's the kind of thing that stops being free at a scale
   this single-room app isn't at.
 
+## Authenticated navigation back to the home screen ✅
+
+The app shell's brand mark (`BrandMark`, sidebar in `app-shell.tsx` and
+the mobile `topbar.tsx`) is now a link to `/` — a conventional
+"click the logo to go home" affordance that didn't exist before (it was
+a plain, non-interactive `<div>` in both places).
+
+The real work is on the receiving end: `/` is the marketing route, and
+its header (`SiteHeader`) previously always showed "Sign in" / "Create
+account" — correct for a logged-out visitor, wrong for someone who just
+clicked that link from `/calendar` while already signed in. Fixed by
+making `(marketing)/layout.tsx` an async Server Component that calls
+`getVerifiedUser()` (skipped under `useFixtures`, the same guard every
+other page uses before touching Supabase) and passes
+`isAuthenticated` down: `SiteHeader` swaps the two logged-out buttons
+for a single "Go to calendar" one, and the footer drops its "Sign in"
+link entirely, when a session is present.
+
+Since `/` now renders different content depending on the visitor's own
+session, it's no longer safe as a response a shared cache could reuse
+across visitors — added to `proxy.ts`'s `isSessionSensitive` list
+(`pathname === "/"`, not a prefix match, so this doesn't accidentally
+swallow every other route) alongside `/login`, `/register`, etc., which
+already carried this exact same reasoning. This is also why `/` moved
+from a statically-prerendered route to a dynamic (`ƒ`) one in the build
+output — expected and necessary, not a regression.
+
+Verified in a real browser, both directions: an already-authenticated
+session clicking the sidebar logo from `/calendar` (desktop) and the
+topbar logo (mobile, 390×844) both land on `/` showing "Go to calendar"
+and no stray "Sign in" link in the footer; `curl` confirms `/`'s
+response now carries the same cache-control treatment as the other
+session-sensitive routes (matches this project's existing convention
+that no session-bearing response is ever left cacheable by a shared
+cache).
+
 ## Step 5 — Notifications (not started)
 
 - [ ] Transactional email provider integration

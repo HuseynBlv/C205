@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
  * (logo, primary nav, a solid CTA on the right) rather than a floating
  * glass pill.
  */
-export function SiteHeader() {
+export function SiteHeader({ isAuthenticated = false }: { isAuthenticated?: boolean }) {
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[#172e35]">
       <nav
@@ -18,15 +18,23 @@ export function SiteHeader() {
           <BrandMark tone="dark" />
         </Link>
         <div className="flex items-center gap-1.5">
-          <Link
-            href="/login"
-            className="rounded-md px-3 py-2 text-sm font-medium text-[#e6ebec] transition-colors hover:bg-white/10"
-          >
-            Sign in
-          </Link>
-          <Button asChild size="sm" variant="secondary" className="bg-[#eef2f3] text-[#172e35] hover:bg-white">
-            <Link href="/register">Create account</Link>
-          </Button>
+          {isAuthenticated ? (
+            <Button asChild size="sm" variant="secondary" className="bg-[#eef2f3] text-[#172e35] hover:bg-white">
+              <Link href="/calendar">Go to calendar</Link>
+            </Button>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="rounded-md px-3 py-2 text-sm font-medium text-[#e6ebec] transition-colors hover:bg-white/10"
+              >
+                Sign in
+              </Link>
+              <Button asChild size="sm" variant="secondary" className="bg-[#eef2f3] text-[#172e35] hover:bg-white">
+                <Link href="/register">Create account</Link>
+              </Button>
+            </>
+          )}
         </div>
       </nav>
     </header>

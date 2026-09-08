@@ -62,9 +62,13 @@ export async function updateSession(request: NextRequest) {
   // Every route that can read or write cookie-carried session state, even
   // ones a signed-out visitor may land on (login, password reset) — none of
   // these should ever be reusable from a shared cache for a different
-  // visitor.
+  // visitor. "/" is included here too: the marketing layout now reads the
+  // caller's own session to swap "Sign in" for "Go to calendar" (see
+  // (marketing)/layout.tsx), so its response is per-visitor same as any of
+  // these, not static content that happens to be the same for everyone.
   const isSessionSensitive =
     requiresSession ||
+    pathname === "/" ||
     pathname.startsWith("/reset-password") ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/register") ||

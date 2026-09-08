@@ -890,6 +890,18 @@ cosmetic; nothing here should be trusted as security.
   sheet + brand + avatar) and a bottom tab bar for the three primary actions
   (Calendar, Request C205, My Requests), so the core workflow never needs
   more than a thumb's reach on a phone.
+- The brand mark in both the sidebar and the mobile top bar (`Topbar`) is a
+  link to `/` — a way back to the public marketing page from anywhere in
+  the authenticated app, `/calendar` included. `(marketing)/layout.tsx`
+  reads the caller's own session (`getVerifiedUser()`, skipped under
+  `useFixtures`) so that page never greets an already-signed-in visitor
+  with "Sign in" / "Create account": `SiteHeader` shows a single "Go to
+  calendar" button instead, and the footer's "Sign in" link disappears.
+  Since `/` now varies per visitor, it's in `proxy.ts`'s
+  `isSessionSensitive` set (an exact `pathname === "/"` match, not a
+  prefix) alongside `/login`/`/register`/etc., so it gets the same
+  never-shared-cache treatment — and is why `/` moved from a statically
+  prerendered route to a dynamic one in the build output.
 - `components/layout/account-status-gate.tsx` — the workflow gate. An
   `ACTIVE` user sees the shell; `PENDING` sees
   `pending-authorization-state`; `SUSPENDED` / `REJECTED` / `REMOVED` see

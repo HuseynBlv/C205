@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { MobileNavSheet } from "@/components/layout/mobile-nav-sheet";
@@ -24,9 +25,9 @@ export function Topbar({
   return (
     <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/80 md:hidden">
       <MobileNavSheet items={navItems} user={user} onSignOut={onSignOut} />
-      <div className="min-w-0 flex-1">
+      <Link href="/" aria-label="Go to the C205 home page" className="min-w-0 flex-1">
         <BrandMark />
-      </div>
+      </Link>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
