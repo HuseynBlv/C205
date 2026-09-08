@@ -9,7 +9,7 @@
 -- the three functions.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(15);
+select plan(18);
 
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
 values
@@ -145,6 +145,43 @@ select is(
   'fifth attempt failed',
   'mark_email_failed records the last error message'
 );
+
+-- ---- get_reservation_for_notification: same secret, full row ------------
+insert into public.availability_windows (room_id, starts_at, ends_at, label, published_by)
+select id, now() + interval '199 days', now() + interval '201 days', 'Test window', '00000000-0000-0000-0000-0000000000c1'
+from public.rooms where code = 'C205';
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000c2","role":"authenticated"}';
+
+select (public.submit_request(
+  (select id from public.rooms where code = 'C205'),
+  now() + interval '200 days', now() + interval '200 days 1 hour',
+  'notification lookup test', 3, null
+)).id as notif_reservation_id \gset
+
+reset role;
+set local role anon;
+
+select throws_ok(
+  format($$ select public.get_reservation_for_notification('wrong-secret', %L::uuid) $$, :'notif_reservation_id'),
+  '28000'::char(5), NULL,
+  'get_reservation_for_notification rejects the wrong secret'
+);
+
+select is(
+  (select (public.get_reservation_for_notification('correct-horse-battery-staple-9000', :'notif_reservation_id'::uuid)).purpose),
+  'notification lookup test',
+  'get_reservation_for_notification returns the full reservation row with the correct secret'
+);
+
+select is(
+  (select (public.get_reservation_for_notification('correct-horse-battery-staple-9000', gen_random_uuid())).id),
+  null::uuid,
+  'get_reservation_for_notification returns null for a nonexistent id, not an error'
+);
+
+reset role;
 
 select * from finish();
 rollback;

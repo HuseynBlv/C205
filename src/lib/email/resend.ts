@@ -2,13 +2,12 @@ import "server-only";
 
 /**
  * A minimal fetch wrapper for Resend's send API — no SDK dependency, since
- * this is the one HTTP call the whole notifications feature needs. Every
- * email_outbox row already carries a complete, human-ready subject/body
- * (see the SECURITY DEFINER functions that write them in
- * supabase/migrations/*.sql) — this never renders a template, it only
- * transports what's already there.
+ * this is the one HTTP call the whole notifications feature needs. Sends
+ * both an HTML part (src/lib/email/templates.ts) and a plain-text part
+ * (the outbox row's own pre-composed `body`, used verbatim as a fallback
+ * for clients that don't render HTML) — never HTML-only.
  */
-export async function sendEmail(input: { to: string; subject: string; text: string }): Promise<
+export async function sendEmail(input: { to: string; subject: string; html: string; text: string }): Promise<
   { ok: true } | { ok: false; error: string }
 > {
   const apiKey = process.env.EMAIL_PROVIDER_API_KEY;
@@ -27,6 +26,7 @@ export async function sendEmail(input: { to: string; subject: string; text: stri
       from,
       to: input.to,
       subject: input.subject,
+      html: input.html,
       text: input.text,
     }),
   });

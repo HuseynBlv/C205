@@ -696,6 +696,39 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      get_reservation_for_notification: {
+        Args: { p_id: string; p_secret: string }
+        Returns: {
+          admin_override: boolean
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          decision_reason: string | null
+          ends_at: string
+          id: string
+          override_reason: string | null
+          participant_count: number
+          purpose: string
+          requester_email: string
+          requester_id: string | null
+          requester_name: string
+          room_id: string
+          starts_at: string
+          status: Database["public"]["Enums"]["reservation_status"]
+          submitted_at: string
+          updated_at: string
+          version: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "reservations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       is_active_admin: { Args: never; Returns: boolean }
       is_active_user: { Args: never; Returns: boolean }
       mark_email_failed: {

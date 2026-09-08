@@ -900,14 +900,48 @@ enqueued or when.
   manual setup step in local dev after `db:reset` — a hosted project
   still requires the one-time `set_email_worker_secret()` call.
 
-**What this doesn't do**: send a real email. Verifying actual delivery
-needs a real Resend account and API key, which requires signing up for
-one — outside what this assistant will do on the user's behalf. Every
-layer up to that boundary (claim → attempt → mark) was verified locally,
-including the exact failure path when the provider isn't configured
-(`EMAIL_PROVIDER_API_KEY` / `EMAIL_FROM_ADDRESS not configured`, recorded
-as `last_error` on each affected row, all left retryable rather than
-lost).
+**Delivery is confirmed working end to end**: the user supplied a real
+Resend API key and both secrets directly in chat; a real reservation's
+data was sent to and delivered by Resend, landing as an actual email.
+(No account was created on the user's behalf — creating one is the one
+step this assistant will not do; everything past that boundary was
+built and verified.)
+
+**HTML rendering** (`src/lib/email/templates.ts`): each `email_outbox`
+row's `template` column already identified which of six notification
+kinds it is (submission → admin, submission → requester receipt,
+approved, rejected, cancelled, modified/manually-confirmed) — this adds
+a real HTML layout per kind instead of sending the plain-text `body`
+alone.
+- **`get_reservation_for_notification(p_secret, p_id)`**
+  (`supabase/migrations/20260908170000_email_notification_lookup.sql`) —
+  a fourth function gated by the same `email_worker_secret`, returning
+  the *full* reservation row. Safe specifically because the only thing
+  that ever happens with the result is rendering the one email already
+  addressed to that row's own `to_email` — unlike `reservation-details.ts`
+  (the calendar panel's tiered fetch), there's no "wrong viewer" case to
+  guard against here, so no tiering logic was needed.
+  `route.ts` calls this once per claimed row and falls back to the
+  outbox row's own plain-text `body`/`subject` if the reservation can't
+  be found (deleted, or a row with no `related_reservation_id`) — this
+  can degrade an email's formatting, never block sending it.
+- Every send is a real multipart email (`sendEmail` now takes both `html`
+  and `text`) — the HTML is the "beautiful" part (navy header matching
+  the app's own brand color, a status badge using the exact same
+  palette as `components/status/status-badge.tsx`, a bordered detail
+  table for date/time/purpose/participants, a callout box for reasons/
+  override text); the outbox row's original plain-text `body` rides
+  along unchanged as the fallback for clients that don't render HTML.
+  No template-rendering library or hosted image — one file of plain
+  template-literal HTML with inline styles (the only style approach
+  email clients reliably honor), verified visually for all six template
+  kinds via a temporary dev-only preview route (added, screenshotted,
+  then deleted — never part of the shipped feature).
+- **124 pgTAP assertions total** (was 121) — three more in
+  `070_email_worker.test.sql` cover
+  `get_reservation_for_notification` rejecting the wrong secret,
+  returning the full row with the right one, and returning `null` (not
+  an error) for a nonexistent id.
 
 ## Fixtures vs. production (`src/lib/config.ts`)
 

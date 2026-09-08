@@ -1315,23 +1315,32 @@ with retry on failure.
       HTTP auth) and `EMAIL_WORKER_SECRET` (database-level RPC auth) are
       deliberately two separate secrets — leaking or rotating one never
       affects the other.
-- [x] Verified locally end to end, repeatedly, including after a fresh
-      `db:reset` (seed.sql now seeds a matching local `email_worker_secret`
-      so the worker needs no manual setup step in dev): claiming real
-      seeded `PENDING` rows, a wrong-secret request correctly rejected
-      (401), and a real send attempt correctly marked `FAILED` with the
-      real error message ("`EMAIL_PROVIDER_API_KEY` / `EMAIL_FROM_ADDRESS`
-      not configured") since no real Resend account exists yet.
+- [x] **HTML email templates** (`src/lib/email/templates.ts`,
+      `get_reservation_for_notification()` in
+      `20260908170000_email_notification_lookup.sql`) — a real, branded
+      HTML layout per notification kind (submission → admin, submission
+      → requester, approved, rejected, cancelled, modified), not just
+      the plain-text `body` every row already carried. Every send is
+      multipart (HTML + the original plain text as fallback). Visually
+      verified for all six kinds via a temporary dev-only preview route
+      (screenshotted, then deleted before committing). 3 more pgTAP
+      assertions (124 total).
+- [x] **Verified with a real send, end to end**: the user supplied a real
+      Resend API key, `CRON_SECRET`, and `EMAIL_WORKER_SECRET` directly.
+      Resend's own 403 on the seeded fake `@c205.local` addresses ("you
+      can only send testing emails to your own address") confirmed the
+      key itself authenticates correctly; a follow-up test row addressed
+      to that verified address was claimed, sent, and marked `SENT` —
+      **a real email was delivered**, not simulated.
+- [x] Verified locally end to end otherwise, repeatedly, including after a
+      fresh `db:reset` (seed.sql seeds a matching local
+      `email_worker_secret` so the worker needs no manual setup step in
+      dev): claiming real seeded `PENDING` rows, a wrong-secret request
+      correctly rejected (401), and a misconfigured-provider attempt
+      correctly marked `FAILED` with the real error message.
 
 ### Known gaps after this step
 
-- **No real email has ever actually been sent — this cannot be verified
-  without a real Resend API key**, which requires creating a Resend
-  account (an account-creation step this assistant will not perform on
-  the user's behalf regardless of how mechanical it is). Everything up to
-  that boundary is built, tested, and confirmed working: the claim/send/
-  mark cycle, retry-on-failure, and the exact error path when the
-  provider isn't configured.
 - Per the Phase 1 plan (see project memory / earlier settings decisions):
   `EMAIL_FROM_ADDRESS` should stay `onboarding@resend.dev` (Resend's
   shared sender, which can only deliver to the account owner's own

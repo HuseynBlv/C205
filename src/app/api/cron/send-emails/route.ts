@@ -2,9 +2,11 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { sendEmail } from "@/lib/email/resend";
+import { renderReservationEmail } from "@/lib/email/templates";
 import type { Tables } from "@/lib/supabase/database.types";
 
 type OutboxRow = Tables<"email_outbox">;
+type Reservation = Tables<"reservations">;
 
 /**
  * Drains public.email_outbox — the actual "send the notification" half of
@@ -63,7 +65,26 @@ export async function GET(request: NextRequest) {
   let failed = 0;
 
   for (const row of rows) {
-    const result = await sendEmail({ to: row.to_email, subject: row.subject, text: row.body });
+    // A best-effort lookup — get_reservation_for_notification returns null
+    // for a missing/already-deleted reservation, and renderReservationEmail
+    // falls back to the row's own plain-text body in that case, so a
+    // lookup failure here degrades the email's formatting, never blocks
+    // sending it.
+    let reservation: Reservation | null = null;
+    if (row.related_reservation_id) {
+      const { data } = await supabase.rpc("get_reservation_for_notification", {
+        p_secret: workerSecret,
+        p_id: row.related_reservation_id,
+      });
+      reservation = (data as Reservation | null) ?? null;
+    }
+
+    const { html, text } = renderReservationEmail(row.template, reservation, {
+      subject: row.subject,
+      text: row.body,
+    });
+
+    const result = await sendEmail({ to: row.to_email, subject: row.subject, html, text });
     if (result.ok) {
       await supabase.rpc("mark_email_sent", { p_secret: workerSecret, p_id: row.id });
       sent += 1;
