@@ -81,6 +81,13 @@ update public.profiles set account_status = 'ACTIVE'
 update public.profiles set account_status = 'SUSPENDED', status_reason = 'Demo: suspended for the storyboard review'
   where id = '00000000-0000-0000-0000-00000000d004';
 
+-- Matches the placeholder value .env.local ships for EMAIL_WORKER_SECRET,
+-- purely so the local email-sending worker (src/app/api/cron/send-emails)
+-- works out of the box after `db:reset` without a manual
+-- `select set_email_worker_secret(...)` step every time. Never used
+-- against a hosted project — rotate it there via that function instead.
+update public.app_settings set email_worker_secret = 'local-dev-worker-secret-0123456789';
+
 -- Published availability: weekday business hours for the next two weeks.
 --
 -- `d::date + time '09:00'` alone produces a naive timestamp, which casts

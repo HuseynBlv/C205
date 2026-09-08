@@ -830,6 +830,85 @@ Step 3a's (room-lock-first, SECURITY DEFINER, audited):
   Step 2a, never had a UI), mirroring its server-side email-format
   check on the client for immediate feedback.
 
+## Notifications (`supabase/migrations/20260908150000_email_worker.sql`, `src/app/api/cron/send-emails/`, `src/lib/email/`)
+
+The enqueue side existed since the booking engine (Step 3a) — every
+mutating function there writes a complete, human-ready `email_outbox`
+row (`to_email`/`subject`/`body`, already fully composed at write time,
+never a template reference to render later) for submission, decision,
+and cancellation/material-change. Nothing ever read those rows back out
+until this step, which is purely the send side — no change to what gets
+enqueued or when.
+
+- **Authorization has no user session to check.** Every other privileged
+  operation in this app is gated by `auth.uid()` inside a SECURITY
+  DEFINER function; a scheduled cron job has no signed-in caller at all.
+  Using `SUPABASE_SERVICE_ROLE_KEY` here would have been the one
+  exception to this project's hard rule that key is never used by app
+  code — instead, two separate shared secrets gate the two layers
+  involved:
+  - **`CRON_SECRET`** authorizes the HTTP request to
+    `GET /api/cron/send-emails` itself, checked with `timingSafeEqual`
+    (the same pattern `admin-setup/actions.ts` already uses for
+    `ADMIN_BOOTSTRAP_SECRET`). Named to match Vercel Cron's own
+    convention: when set, Vercel automatically sends
+    `Authorization: Bearer $CRON_SECRET` when it calls a route on the
+    schedule in `vercel.json` — no external scheduler needed on that
+    host. Any other host needs its own scheduler sending that header.
+  - **`EMAIL_WORKER_SECRET`** authorizes the three new database functions
+    the route calls — `claim_pending_emails`, `mark_email_sent`,
+    `mark_email_failed`. These are the *only* path to `email_outbox`,
+    which still grants nothing directly to `anon`/`authenticated`; since
+    they're reachable with just the public anon key (shipped to every
+    browser), they can't rely on the route being their only caller and
+    check this secret themselves, set once via `set_email_worker_secret()`
+    (admin-only, mirrors `set_usg_notification_email`) and stored in
+    `app_settings`. Kept distinct from `CRON_SECRET` — leaking or
+    rotating one never affects the other.
+- **Claiming avoids a new enum status.** `email_outbox_status` stays
+  `PENDING` / `SENT` / `FAILED` — adding a fourth value would need
+  `alter type ... add value`, which Postgres won't let you use in the
+  same transaction that adds it, complicating a single migration file.
+  `claim_pending_emails` instead selects up to N rows still `PENDING`
+  with `attempts < 5` (`FOR UPDATE SKIP LOCKED`, so a genuinely
+  concurrent claim never returns the same row twice) and increments
+  `attempts` without changing status. This gives "at least once"
+  delivery: a row still `PENDING` after a worker crashes mid-send is
+  retried on the next run, at the accepted cost of a possible rare
+  duplicate send if two runs ever truly overlap — a far better failure
+  mode for a notification email than "silently never sent." A row is
+  only marked `FAILED` (via `mark_email_failed`) once `attempts` reaches
+  5; until then it keeps its message and retries.
+- **`src/lib/email/resend.ts`** is a single `fetch` call to Resend's send
+  API — no SDK, since that's the only HTTP request this feature needs.
+  It transports each row's already-composed `subject`/`body` verbatim;
+  no template rendering happens at send time.
+- **`GET /api/cron/send-emails`** ties it together: check `CRON_SECRET` →
+  `claim_pending_emails` (up to 20) → `sendEmail` per row → `mark_email_sent`
+  or `mark_email_failed` per outcome. Returns `{claimed, sent, failed}`
+  counts, useful as a quick health signal from cron logs.
+- **121 pgTAP assertions total** (was 106) — `070_email_worker.test.sql`
+  covers admin-only/minimum-length checks on `set_email_worker_secret`,
+  that rotating the secret is audited without ever recording its value,
+  all three worker functions rejecting the wrong secret while running as
+  the unauthenticated `anon` role (matching how the real cron caller
+  connects), `claim_pending_emails`'s attempts-increment-without-status-
+  change behavior, and the `mark_email_failed` → `FAILED` transition only
+  firing once the attempts threshold is reached.
+- `supabase/seed.sql` now also seeds a local `email_worker_secret`
+  matching `.env.local`'s `EMAIL_WORKER_SECRET`, so the worker needs no
+  manual setup step in local dev after `db:reset` — a hosted project
+  still requires the one-time `set_email_worker_secret()` call.
+
+**What this doesn't do**: send a real email. Verifying actual delivery
+needs a real Resend account and API key, which requires signing up for
+one — outside what this assistant will do on the user's behalf. Every
+layer up to that boundary (claim → attempt → mark) was verified locally,
+including the exact failure path when the provider isn't configured
+(`EMAIL_PROVIDER_API_KEY` / `EMAIL_FROM_ADDRESS not configured`, recorded
+as `last_error` on each affected row, all left retryable rather than
+lost).
+
 ## Fixtures vs. production (`src/lib/config.ts`)
 
 ```ts

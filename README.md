@@ -144,6 +144,24 @@ yet, only status changes).
 8. Consider enabling a CAPTCHA (hCaptcha/Turnstile) on the auth forms and
    reviewing `auth.rate_limit` for your expected traffic — this step relies
    on Supabase Auth's default abuse protection, not anything custom.
+9. **Turn on the email-sending worker** (see `.env.example`'s comments for
+   the full detail on each of these):
+   - Create a [Resend](https://resend.com) account and API key —
+     `EMAIL_PROVIDER_API_KEY`. Free tier is fine for launch: the shared
+     `onboarding@resend.dev` sender (`EMAIL_FROM_ADDRESS`) can only
+     deliver to your own verified address until a real sending domain is
+     verified in Resend's dashboard.
+   - Generate `CRON_SECRET` and a separate `EMAIL_WORKER_SECRET`
+     (`openssl rand -hex 32` each — never reuse one for the other) and
+     set both in your deployment's environment variables.
+   - As a signed-in admin, run
+     `select set_email_worker_secret('<the same EMAIL_WORKER_SECRET value>');`
+     against the hosted project once (Supabase SQL editor, or `psql`).
+   - On Vercel, `vercel.json` already schedules
+     `GET /api/cron/send-emails` every 5 minutes and Vercel supplies the
+     `CRON_SECRET` header automatically. On any other host, point your
+     own scheduler at that route with an
+     `Authorization: Bearer <CRON_SECRET>` header.
 
 ## Scripts
 

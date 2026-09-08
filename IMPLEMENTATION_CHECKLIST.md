@@ -1263,13 +1263,92 @@ session-sensitive routes (matches this project's existing convention
 that no session-bearing response is ever left cacheable by a shared
 cache).
 
-## Step 5 — Notifications (not started)
+## Step 5 — Notifications ✅ (send side)
 
-- [ ] Transactional email provider integration
-- [ ] Durable Postgres outbox, written atomically with reservation changes
-- [ ] Retry for delivery failures
-- [ ] All four required emails: submission (USG + requester "Pending"),
-      decision, cancellation/material change
+The enqueue side (durable Postgres outbox, written atomically with every
+reservation change, all four required emails) has existed since Step 3a
+— `email_outbox` rows for submission, decision, and cancellation/
+material-change were always written correctly; nothing ever read them
+back out. This step is the missing other half: a background worker that
+actually drains the queue through a real transactional email provider,
+with retry on failure.
+
+- [x] **`GET /api/cron/send-emails`** (`src/app/api/cron/send-emails/route.ts`)
+      — claims up to 20 not-yet-exhausted `PENDING` rows, sends each via
+      Resend's REST API (`src/lib/email/resend.ts`, a plain `fetch` call —
+      no SDK dependency for one HTTP call), and marks each `SENT` or
+      `FAILED` accordingly. Every row's `subject`/`body` was already a
+      complete, human-ready message at write time (see the SECURITY
+      DEFINER functions that insert them) — this worker transports it,
+      never renders a template.
+- [x] **`claim_pending_emails` / `mark_email_sent` / `mark_email_failed`**
+      (`supabase/migrations/20260908150000_email_worker.sql`) — the only
+      path to `email_outbox`, which still grants nothing directly to
+      `anon`/`authenticated`. There's no signed-in user for a cron
+      trigger, and this project's established rule is that
+      `SUPABASE_SERVICE_ROLE_KEY` is never used by any app code (confirmed
+      again by a repo-wide grep this step) — so these are gated by a
+      shared secret (`EMAIL_WORKER_SECRET`, set once via
+      `set_email_worker_secret()`, admin-only) instead of either escape
+      hatch. Claiming increments `attempts` rather than introducing a new
+      enum status, giving "at least once" delivery: a row still `PENDING`
+      after a crash mid-send is retried next run; a row is only marked
+      `FAILED` once `attempts` reaches 5.
+- [x] **Retry for delivery failures** — the `attempts`/threshold mechanism
+      above; a transient Resend failure (rate limit, timeout) leaves the
+      row `PENDING` with `last_error` recorded, retried on the next
+      scheduled run rather than lost.
+- [x] **15 new pgTAP assertions** (`070_email_worker.test.sql`, 121 total)
+      covering: non-admin/too-short secret rejection on
+      `set_email_worker_secret`; the secret rotation is audited but never
+      records the secret's own value; all three worker functions reject
+      the wrong secret, exercised as the unauthenticated `anon` role (no
+      JWT at all) to match how the real cron caller actually connects;
+      `claim_pending_emails` increments `attempts` without changing
+      status; `mark_email_sent`/`mark_email_failed` transition correctly,
+      including that `FAILED` is only reached once `attempts` is
+      exhausted.
+- [x] `vercel.json` schedules the route every 5 minutes — Vercel Cron
+      automatically sends `Authorization: Bearer $CRON_SECRET`, so no
+      external scheduler is needed on that host; another host needs its
+      own scheduler sending the same header. `CRON_SECRET` (route-level
+      HTTP auth) and `EMAIL_WORKER_SECRET` (database-level RPC auth) are
+      deliberately two separate secrets — leaking or rotating one never
+      affects the other.
+- [x] Verified locally end to end, repeatedly, including after a fresh
+      `db:reset` (seed.sql now seeds a matching local `email_worker_secret`
+      so the worker needs no manual setup step in dev): claiming real
+      seeded `PENDING` rows, a wrong-secret request correctly rejected
+      (401), and a real send attempt correctly marked `FAILED` with the
+      real error message ("`EMAIL_PROVIDER_API_KEY` / `EMAIL_FROM_ADDRESS`
+      not configured") since no real Resend account exists yet.
+
+### Known gaps after this step
+
+- **No real email has ever actually been sent — this cannot be verified
+  without a real Resend API key**, which requires creating a Resend
+  account (an account-creation step this assistant will not perform on
+  the user's behalf regardless of how mechanical it is). Everything up to
+  that boundary is built, tested, and confirmed working: the claim/send/
+  mark cycle, retry-on-failure, and the exact error path when the
+  provider isn't configured.
+- Per the Phase 1 plan (see project memory / earlier settings decisions):
+  `EMAIL_FROM_ADDRESS` should stay `onboarding@resend.dev` (Resend's
+  shared sender, which can only deliver to the account owner's own
+  verified address) until a real sending domain — the plan was to wait
+  for a `usg.az` subdomain from ADA IT — is verified in Resend's
+  dashboard for Phase 2 (real student signups).
+- `app_settings.usg_notification_email` is still the placeholder seeded
+  in Step 2a (`replace-before-launch@usg.example.edu`) — set the real
+  address via the existing `/admin/settings` form before any USG-facing
+  notification is meaningful, independent of the sending worker itself.
+- No dead-letter visibility beyond `email_outbox.status = 'FAILED'` and
+  `last_error` — an admin has to query the table directly (or a future
+  small admin-audit view) to notice a permanently failed notification;
+  nothing surfaces it proactively yet.
+- The cron schedule (`vercel.json`, every 5 minutes) is a reasonable
+  default for this app's volume, not a value derived from any actual
+  load testing.
 
 ## Step 6 — Verification (not started)
 

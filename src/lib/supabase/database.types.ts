@@ -36,18 +36,21 @@ export type Database = {
     Tables: {
       app_settings: {
         Row: {
+          email_worker_secret: string | null
           id: boolean
           updated_at: string
           updated_by: string | null
           usg_notification_email: string
         }
         Insert: {
+          email_worker_secret?: string | null
           id?: boolean
           updated_at?: string
           updated_by?: string | null
           usg_notification_email: string
         }
         Update: {
+          email_worker_secret?: string | null
           id?: boolean
           updated_at?: string
           updated_by?: string | null
@@ -603,6 +606,29 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      claim_pending_emails: {
+        Args: { p_limit?: number; p_secret: string }
+        Returns: {
+          attempts: number
+          body: string
+          created_at: string
+          id: string
+          last_error: string | null
+          metadata: Json
+          related_reservation_id: string | null
+          sent_at: string | null
+          status: Database["public"]["Enums"]["email_outbox_status"]
+          subject: string
+          template: string
+          to_email: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "email_outbox"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       create_blocked_interval: {
         Args: {
           p_ends_at: string
@@ -672,6 +698,14 @@ export type Database = {
       }
       is_active_admin: { Args: never; Returns: boolean }
       is_active_user: { Args: never; Returns: boolean }
+      mark_email_failed: {
+        Args: { p_error: string; p_id: string; p_secret: string }
+        Returns: undefined
+      }
+      mark_email_sent: {
+        Args: { p_id: string; p_secret: string }
+        Returns: undefined
+      }
       modify_reservation: {
         Args: {
           p_ends_at?: string
@@ -851,6 +885,10 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      set_email_worker_secret: {
+        Args: { p_secret: string }
+        Returns: undefined
+      }
       set_user_role: {
         Args: {
           p_profile_id: string
@@ -877,6 +915,7 @@ export type Database = {
       set_usg_notification_email: {
         Args: { p_email: string }
         Returns: {
+          email_worker_secret: string | null
           id: boolean
           updated_at: string
           updated_by: string | null
