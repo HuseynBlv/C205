@@ -12,6 +12,7 @@ import type { CalendarEvent } from "@/components/calendar/calendar-view";
 type EntryKind = "window" | "block" | "pending" | "approved";
 
 interface DayEntry {
+  id: string | undefined;
   startTime: string;
   endTime: string;
   kind: EntryKind;
@@ -75,7 +76,15 @@ function formatTime(hhmm: string) {
  * same `events` the desktop calendar gets — no separate data fetch, no
  * different contract, just a different presentation for narrow screens.
  */
-export function MobileAgenda({ events }: { events: CalendarEvent[] }) {
+export function MobileAgenda({
+  events,
+  onSelectEvent,
+}: {
+  events: CalendarEvent[];
+  /** Opens the same privacy-tiered details panel used on desktop, as a
+   * bottom sheet — see calendar-view.tsx. */
+  onSelectEvent: (id: string) => void;
+}) {
   const todayKey = useMemo(() => formatInTimeZone(new Date(), ROOM_TIMEZONE, "yyyy-MM-dd"), []);
   const dateStrip = useMemo(
     () => Array.from({ length: 14 }, (_, i) => addDaysToDateString(todayKey, i - 2)),
@@ -91,7 +100,13 @@ export function MobileAgenda({ events }: { events: CalendarEvent[] }) {
       const kind = (ev.extendedProps as { kind?: EntryKind } | undefined)?.kind;
       if (!start || !end || !kind) continue;
       const list = map.get(start.date) ?? [];
-      list.push({ startTime: start.time, endTime: end.time, kind, title: String(ev.title ?? "") });
+      list.push({
+        id: typeof ev.id === "string" ? ev.id : undefined,
+        startTime: start.time,
+        endTime: end.time,
+        kind,
+        title: String(ev.title ?? ""),
+      });
       map.set(start.date, list);
     }
     for (const list of map.values()) list.sort((a, b) => a.startTime.localeCompare(b.startTime));
@@ -156,8 +171,34 @@ export function MobileAgenda({ events }: { events: CalendarEvent[] }) {
           selectedEntries.map((entry, i) => {
             const meta = KIND_META[entry.kind];
             const isReservation = entry.kind === "pending" || entry.kind === "approved";
+            const clickable = isReservation && Boolean(entry.id);
             return (
-              <div key={i} className="flex items-start gap-3 rounded-lg border border-border bg-card p-3">
+              <div
+                key={i}
+                role={clickable ? "button" : undefined}
+                tabIndex={clickable ? 0 : undefined}
+                onClick={clickable ? () => onSelectEvent(entry.id!) : undefined}
+                onKeyDown={
+                  clickable
+                    ? (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onSelectEvent(entry.id!);
+                        }
+                      }
+                    : undefined
+                }
+                aria-label={
+                  clickable
+                    ? `${meta.label}, ${formatTime(entry.startTime)} to ${formatTime(entry.endTime)}. View details.`
+                    : undefined
+                }
+                className={cn(
+                  "flex min-h-11 items-start gap-3 rounded-lg border border-border bg-card p-3",
+                  clickable &&
+                    "cursor-pointer transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cal-accent)]",
+                )}
+              >
                 <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", meta.dotClass)} aria-hidden="true" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-foreground">

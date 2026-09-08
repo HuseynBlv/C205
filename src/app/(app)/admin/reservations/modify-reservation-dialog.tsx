@@ -27,9 +27,11 @@ function toLocalInput(iso: string): string {
 export function ModifyReservationDialog({
   reservation,
   trigger,
+  onSuccess,
 }: {
   reservation: Reservation;
   trigger: React.ReactNode;
+  onSuccess?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [startsAt, setStartsAt] = useState(() => toLocalInput(reservation.starts_at));
@@ -69,6 +71,7 @@ export function ModifyReservationDialog({
       setOpen(false);
       setNeedsOverride(null);
       setOverrideReason("");
+      onSuccess?.();
     });
   }
 

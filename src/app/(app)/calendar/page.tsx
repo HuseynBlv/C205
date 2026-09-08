@@ -1,9 +1,11 @@
+import { Suspense } from "react";
 import { CalendarOff } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { PreviewNotice } from "@/components/shared/preview-notice";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { AutoRefresh } from "@/components/shared/auto-refresh";
+import { CalendarLoadingState } from "@/components/states/loading-state";
 import { fixtureAvailability } from "@/lib/fixtures/data";
 import { useFixtures, ROOM_TIMEZONE } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
@@ -116,10 +118,12 @@ function windowStyle(startTime: string, endTime: string) {
 async function RealCalendar() {
   const supabase = await createClient();
   const [
+    { data: room },
     { data: windows, error: windowsError },
     { data: blocks, error: blocksError },
     { data: occupancy, error: occupancyError },
   ] = await Promise.all([
+    supabase.from("rooms").select("id").eq("code", "C205").single(),
     supabase.from("availability_windows").select("*"),
     supabase.from("blocked_intervals").select("*"),
     supabase.from("room_occupancy").select("*"),
@@ -175,7 +179,17 @@ async function RealCalendar() {
   const { start: scheduleStart, end: scheduleEnd } = computeScheduleRange(windowRows);
   const businessHours = computeBusinessHours(windowRows);
 
-  return <CalendarView events={events} scheduleStart={scheduleStart} scheduleEnd={scheduleEnd} businessHours={businessHours} />;
+  return (
+    <Suspense fallback={<CalendarLoadingState />}>
+      <CalendarView
+        events={events}
+        roomId={room?.id ?? null}
+        scheduleStart={scheduleStart}
+        scheduleEnd={scheduleEnd}
+        businessHours={businessHours}
+      />
+    </Suspense>
+  );
 }
 
 export default function CalendarPage() {

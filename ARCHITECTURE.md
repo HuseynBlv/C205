@@ -516,6 +516,96 @@ changed is how that same data is drawn.
   (brand orange, reserved for CTAs elsewhere) — everything else
   (status colors, grid lines, borders) reuses existing tokens directly.
 
+## Calendar interactivity (`src/lib/booking/reservation-details.ts`, `src/components/calendar/`)
+
+An app-layer feature on top of the pre-existing RLS policies from the
+database schema section above — no new migration, no new Postgres
+function. The only new authorization logic is which *fields* to show
+once a row has already cleared RLS.
+
+- **`reservation-details.ts`**'s `getReservationDetailsAction` fetches
+  one reservation `.single()` under the caller's own session and derives
+  a tier from what came back: no row → bystander (RLS hid it, or it
+  doesn't exist — indistinguishable by design, same as the existing
+  `requests/[id]` page); a row where `requester_id !== caller` →
+  bystander with the row's public fields; `requester_id === caller` →
+  owner; caller is an active admin → admin. The bystander/owner/admin
+  field lists are enforced here in code, but the *rows a caller can
+  read at all* remain entirely RLS's job — this function adds no new
+  database access path.
+- **`reservation-panel.tsx`**'s `ReservationPanel` is the `Sheet`
+  (desktop: right; mobile: bottom, `useMediaQuery("(min-width: 768px)")`
+  picks the side) opened by clicking/tapping a calendar event. It's
+  handed an instant `fallback` (the calendar's own already-fetched
+  status/start/end, converted through `roomLocalToUtcIso` since the
+  calendar's naive Baku strings aren't real UTC — see "Bugs found"
+  below) so it never opens empty, then replaces that with the tiered
+  fetch's fuller result. An `onSuccess`-driven `refreshKey` re-runs the
+  fetch after an in-panel action (Approve/Reject/Cancel/Modify) — a
+  `revalidatePath` refreshes the calendar's own event list but not this
+  panel's separately-fetched snapshot.
+- **`calendar-view.tsx`** drives the panel's open/closed state from a
+  `?event=<id>` URL query param (`useSearchParams`/`useRouter`/
+  `usePathname`) rather than local component state, so back/forward
+  navigation, not just an explicit close, correctly opens/closes it; a
+  dedicated `useEffect` returns keyboard focus to the exact triggering
+  `data-event-id` element after close (replacing the underlying Radix
+  `Dialog`'s own auto-focus-restore, which doesn't survive that DOM node
+  being recreated by a data refresh). `eventDidMount` adds `tabindex`,
+  `role="button"`, a status-only `aria-label`, and an Enter/Space
+  keydown handler directly to FullCalendar's own event DOM nodes, since
+  they aren't natively focusable; the same hover listeners there drive a
+  small quick-preview popover showing only the bystander-tier fields —
+  never anything a click wouldn't also reveal.
+- **Available-time selection** — `selectable` (disabled in month view via
+  a per-view `views` override) plus a `select` handler (`handleSelect`)
+  that revalidates the picked range with the exact same pure logic the
+  request form already uses (`evaluateRequestedRange` from
+  `slot-status.ts`, `getDayAvailabilityAction` from
+  `availability-query.ts`) before deciding what to show — a valid range
+  renders `selection-panel.tsx`'s summary and a "Continue to request"
+  link to `/requests/new?date=&start=&end=`; an invalid one (past,
+  outside published hours, blocked, or conflicting with an approved
+  reservation) renders a specific reason instead and never links to a
+  request form at all. `/requests/new` reads those query params as a
+  loose prefill only (`requests/new/page.tsx`,
+  `RequestFormInitialSelection`) — the real submission revalidates
+  everything from scratch server-side regardless of what the URL says.
+- Motion stays local and cause-driven: a 180–260ms transition on the
+  event block, an outline+elevation on the selected event
+  (`eventClassNames` + `.fc-event.cal-event-selected` in `calendar.css`),
+  and the panel's own slide-in — nothing calendar-wide or continuous.
+
+### Bugs found and fixed by actually running this step
+
+- **A timezone bug caught while wiring the fallback, not from a failed
+  test**: the calendar's event `start`/`end` are naive Asia/Baku strings
+  meant only for FullCalendar's `timeZone="UTC"` display trick (see the
+  Calendar redesign section above) — feeding one straight into
+  `ReservationPanel`'s real-timezone formatters (which expect genuine
+  UTC-with-offset, matching what the authorized fetch returns) would
+  have silently shown the wrong time to any viewer outside Baku. Fixed
+  by converting the fallback through `roomLocalToUtcIso(date, time)`
+  first.
+- **The panel didn't refresh after a successful in-panel admin action** —
+  approving from the panel left it showing stale "Pending" content and
+  invalid Approve/Reject buttons even after the underlying event turned
+  green, since `revalidatePath` doesn't touch the panel's own separately
+  client-fetched snapshot. Caught by clicking Approve and watching the
+  panel, not by reading the code. Fixed with the `onSuccess`/`refreshKey`
+  mechanism described above, careful to only clear shown content on a
+  genuine reservation-id change so a same-id refetch never flashes a
+  loading skeleton.
+- **"Continue to request" silently did nothing on click**: the link
+  lives in `SelectionPanel`, outside FullCalendar's own grid DOM, so the
+  click was also read by FullCalendar's default `unselectAuto`
+  outside-click behavior (`unselect={() => setSelection(null)}`), which
+  unmounted the panel/link mid-click before navigation ran — confirmed
+  by testing the same destination via a direct URL, which worked.
+  Fixed by removing the `unselect` prop entirely; the selection now only
+  clears via the panel's own dismiss button, a new selection, or
+  navigating away.
+
 ## Administrator dashboard (`supabase/migrations/20260907100000_admin_dashboard.sql`, `src/app/(app)/admin/`)
 
 The Step 3a/3b booking engine covered submit/approve/reject/cancel and

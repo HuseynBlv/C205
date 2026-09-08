@@ -96,7 +96,24 @@ const CLIENT_VALIDATION_COPY: Record<string, { tone: "destructive" | "info"; tex
   ADVANCE_NOTICE_REQUIRED: { tone: "destructive", text: mapBookingError("ADVANCE_NOTICE_REQUIRED") },
 };
 
-export function RequestForm({ roomId }: { roomId: string | null }) {
+export interface RequestFormInitialSelection {
+  date?: string;
+  startTime?: string;
+  endTime?: string;
+}
+
+export function RequestForm({
+  roomId,
+  initialSelection,
+}: {
+  roomId: string | null;
+  /** Prefills the form from a time the user already selected on the
+   * calendar (see calendar/page.tsx's `?date=&start=&end=`) — advisory
+   * only. Nothing here is trusted: the day-availability fetch below and
+   * the real submit_request call both re-check this exact interval
+   * against live data regardless of how the fields got filled in. */
+  initialSelection?: RequestFormInitialSelection;
+}) {
   const [submitted, setSubmitted] = useState<RequestValues | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [refreshedAfterError, setRefreshedAfterError] = useState(false);
@@ -119,7 +136,13 @@ export function RequestForm({ roomId }: { roomId: string | null }) {
     formState: { errors, isSubmitting },
   } = useForm<RequestValues>({
     resolver: zodResolver(requestSchema),
-    defaultValues: { purpose: "", participantCount: 1 },
+    defaultValues: {
+      purpose: "",
+      participantCount: 1,
+      date: initialSelection?.date,
+      startTime: initialSelection?.startTime,
+      endTime: initialSelection?.endTime,
+    },
   });
 
   const values = useWatch({ control });

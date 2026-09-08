@@ -40,7 +40,19 @@ function StaleVersionNotice() {
   );
 }
 
-export function RejectButton({ reservationId, expectedVersion }: { reservationId: string; expectedVersion: number }) {
+export function RejectButton({
+  reservationId,
+  expectedVersion,
+  onSuccess,
+}: {
+  reservationId: string;
+  expectedVersion: number;
+  /** Called after a successful decision, in addition to the
+   * `revalidatePath`s the action already does — for a panel (like the
+   * calendar's ReservationPanel) holding its own client-fetched copy of
+   * the reservation that a server-side revalidation alone won't refresh. */
+  onSuccess?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +95,7 @@ export function RejectButton({ reservationId, expectedVersion }: { reservationId
                   return;
                 }
                 setOpen(false);
+                onSuccess?.();
               });
             }}
           >
@@ -94,7 +107,15 @@ export function RejectButton({ reservationId, expectedVersion }: { reservationId
   );
 }
 
-export function ApproveButton({ reservationId, expectedVersion }: { reservationId: string; expectedVersion: number }) {
+export function ApproveButton({
+  reservationId,
+  expectedVersion,
+  onSuccess,
+}: {
+  reservationId: string;
+  expectedVersion: number;
+  onSuccess?: () => void;
+}) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
@@ -126,6 +147,7 @@ export function ApproveButton({ reservationId, expectedVersion }: { reservationI
         return;
       }
       setOverrideOpen(false);
+      onSuccess?.();
     });
   }
 
@@ -181,7 +203,15 @@ export function ApproveButton({ reservationId, expectedVersion }: { reservationI
   );
 }
 
-export function AdminCancelButton({ reservationId, expectedVersion }: { reservationId: string; expectedVersion: number }) {
+export function AdminCancelButton({
+  reservationId,
+  expectedVersion,
+  onSuccess,
+}: {
+  reservationId: string;
+  expectedVersion: number;
+  onSuccess?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -226,6 +256,7 @@ export function AdminCancelButton({ reservationId, expectedVersion }: { reservat
                   return;
                 }
                 setOpen(false);
+                onSuccess?.();
               });
             }}
           >

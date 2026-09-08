@@ -8,9 +8,11 @@ import { cancelReservationAction } from "@/lib/booking/actions";
 export function CancelReservationButton({
   reservationId,
   expectedVersion,
+  onSuccess,
 }: {
   reservationId: string;
   expectedVersion: number;
+  onSuccess?: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +27,11 @@ export function CancelReservationButton({
           setError(null);
           startTransition(async () => {
             const result = await cancelReservationAction({ reservationId, expectedVersion });
-            if (!result.ok) setError(result.error);
+            if (!result.ok) {
+              setError(result.error);
+              return;
+            }
+            onSuccess?.();
           });
         }}
       >
