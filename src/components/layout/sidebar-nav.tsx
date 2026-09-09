@@ -9,13 +9,21 @@ export function NavList({
   items,
   onNavigate,
   className,
+  tone = "sidebar",
 }: {
   items: NavItem[];
   onNavigate?: () => void;
   className?: string;
+  /** "sidebar" (default) for the dark navy desktop sidebar, whose
+   * `--sidebar-foreground` tokens are near-white text tuned for that dark
+   * background. "surface" for any other container (e.g. the mobile nav
+   * sheet, a plain popover-toned surface) — using the sidebar tokens
+   * there rendered near-invisible light-gray text on white. */
+  tone?: "sidebar" | "surface";
 }) {
   const pathname = usePathname() ?? "";
   const activeHref = getActiveHref(pathname, items);
+  const isSurface = tone === "surface";
 
   return (
     <nav className={cn("flex flex-col gap-1", className)}>
@@ -31,14 +39,24 @@ export function NavList({
             className={cn(
               "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
               isActive
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+                ? isSurface
+                  ? "bg-accent text-accent-foreground"
+                  : "bg-sidebar-accent text-sidebar-accent-foreground"
+                : isSurface
+                  ? "text-foreground/80 hover:bg-accent/60 hover:text-accent-foreground"
+                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
             )}
           >
             <Icon
               className={cn(
                 "size-4.5 shrink-0",
-                isActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/60 group-hover:text-sidebar-accent-foreground",
+                isActive
+                  ? isSurface
+                    ? "text-accent-foreground"
+                    : "text-sidebar-accent-foreground"
+                  : isSurface
+                    ? "text-muted-foreground group-hover:text-accent-foreground"
+                    : "text-sidebar-foreground/60 group-hover:text-sidebar-accent-foreground",
               )}
               aria-hidden="true"
             />

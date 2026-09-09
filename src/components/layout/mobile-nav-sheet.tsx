@@ -41,7 +41,7 @@ export function MobileNavSheet({
           </SheetTitle>
         </SheetHeader>
         <div className="flex flex-1 flex-col justify-between overflow-y-auto p-3">
-          <NavList items={items} onNavigate={() => setOpen(false)} />
+          <NavList items={items} onNavigate={() => setOpen(false)} tone="surface" />
           <div className="mt-4 border-t border-border pt-3">
             <UserMenu user={user} onSignOut={onSignOut} />
           </div>
