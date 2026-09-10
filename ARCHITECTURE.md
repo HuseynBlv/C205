@@ -276,22 +276,25 @@ RLS would otherwise silently under-count conflicts).
 - `submit_request` — active+verified account required; identity and
   PENDING status always derived server-side; validates future start,
   positive duration, purpose, participants; must fit availability; rejects
-  overlap with APPROVED (permits overlapping PENDING); 72-hour notice for
-  ≥2-hour requests. `submitted_at` is `clock_timestamp()` captured *after*
-  the room lock — `now()` is frozen at transaction start and would predate
-  however long the call waited on the lock, undermining the whole point of
-  timestamping "when this was actually submitted." Idempotency
-  (`idempotency_keys`, now keyed by `(scope, requester_id, key)` with a
-  stored `payload` to detect a changed-payload replay) lets a client retry
-  a network failure safely.
+  overlap with APPROVED (permits overlapping PENDING); 48-hour notice for
+  ≥2-hour requests (USG internal rule 4); a >2-hour ("extended") request
+  is also rejected if it lands within an hour of another APPROVED extended
+  reservation (rule 8's back-to-back-occupation buffer). `submitted_at` is
+  `clock_timestamp()` captured *after* the room lock — `now()` is frozen
+  at transaction start and would predate however long the call waited on
+  the lock, undermining the whole point of timestamping "when this was
+  actually submitted." Idempotency (`idempotency_keys`, now keyed by
+  `(scope, requester_id, key)` with a stored `payload` to detect a
+  changed-payload replay) lets a client retry a network failure safely.
 - `approve_request` — active admin, PENDING, matching `p_expected_version`
   required. Re-checks availability and approved-conflicts at approval
-  time, not just submission time; advance notice is evaluated against
-  the *original* `submitted_at`, so a slow-to-decide admin can't turn a
-  compliant request into a violation just by sitting on it. An explicit,
-  audited override can bypass availability-fit and advance-notice — never
-  the approved-overlap check, which stays absolute (the exclusion
-  constraint would refuse the `UPDATE` anyway).
+  time, not just submission time; advance notice and the extended-meeting
+  buffer are both evaluated against the *original* `submitted_at`/request
+  range, so a slow-to-decide admin can't turn a compliant request into a
+  violation just by sitting on it. An explicit, audited override can
+  bypass availability-fit, advance-notice, and the extended-meeting
+  buffer — never the approved-overlap check, which stays absolute (the
+  exclusion constraint would refuse the `UPDATE` anyway).
 - `reject_request` — PENDING → REJECTED, admin-only, version-checked.
 - `cancel_reservation` — **APPROVED → CANCELLED only.** The full state
   machine this migration implements is exactly `PENDING → APPROVED |

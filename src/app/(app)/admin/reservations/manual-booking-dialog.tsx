@@ -50,7 +50,12 @@ export function ManualBookingDialog({ roomId }: { roomId: string }) {
         overrideReason: override ? overrideReason : undefined,
       });
       if (!result.ok) {
-        if (!override && (result.code === "OUTSIDE_AVAILABILITY" || result.code === "ADVANCE_NOTICE_REQUIRED")) {
+        if (
+          !override &&
+          (result.code === "OUTSIDE_AVAILABILITY" ||
+            result.code === "ADVANCE_NOTICE_REQUIRED" ||
+            result.code === "EXTENDED_MEETING_BUFFER_REQUIRED")
+        ) {
           setNeedsOverride(result.error);
           return;
         }
@@ -75,8 +80,9 @@ export function ManualBookingDialog({ roomId }: { roomId: string }) {
         <DialogHeader>
           <DialogTitle>Book directly on someone&apos;s behalf</DialogTitle>
           <DialogDescription>
-            Created and approved in the same step — this exempts the 72-hour advance-notice rule, since nothing
-            about it is pending review. It still can never overlap an approved reservation.
+            Created and approved in the same step — this exempts the 48-hour advance-notice rule, since nothing
+            about it is pending review. It still can never overlap an approved reservation, and the usual one-hour
+            buffer between extended meetings still applies.
           </DialogDescription>
         </DialogHeader>
 

@@ -1,11 +1,13 @@
--- Deep booking-engine scenarios: exact 2h/72h boundaries, idempotency
--- (replay vs. payload-mismatch), modify_reservation (override requirement,
--- the absolute approved-overlap rule, and rollback-on-failure),
--- create_manual_reservation's own absolute overlap rule, and derived
--- pending-request warnings that never change the row they describe.
+-- Deep booking-engine scenarios: exact 2h/48h boundaries, the
+-- extended-meeting buffer rule (rule 8: ~1 hour between two >2h meetings),
+-- idempotency (replay vs. payload-mismatch), modify_reservation (override
+-- requirement, the absolute approved-overlap rule, and
+-- rollback-on-failure), create_manual_reservation's own absolute overlap
+-- rule, and derived pending-request warnings that never change the row
+-- they describe.
 --
 -- Boundary tests use a small (1-minute) margin either side of the exact
--- 2-hour/72-hour threshold rather than a literal nanosecond edge: the
+-- 2-hour/48-hour threshold rather than a literal nanosecond edge: the
 -- function's own clock_timestamp() is necessarily captured a little later
 -- than anything this file can capture first, so testing the true
 -- zero-margin instant would be flaky by construction, not more correct.
@@ -19,7 +21,7 @@
 -- IMPLEMENTATION_CHECKLIST.md for that run's result.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(21);
+select plan(31);
 
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
 values
@@ -38,23 +40,120 @@ select id as room_id from public.rooms where code = 'C205' \gset
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000f2","role":"authenticated"}';
 
--- ---- exact 2-hour / 72-hour boundary --------------------------------
+-- ---- exact 2-hour / 48-hour boundary --------------------------------
 select throws_ok(
-  format($$ select public.submit_request(%L::uuid, now() + interval '71 hours 59 minutes', now() + interval '73 hours 59 minutes', 'just under 72h notice, 2h duration', 2, null) $$, :'room_id'),
+  format($$ select public.submit_request(%L::uuid, now() + interval '47 hours 59 minutes', now() + interval '49 hours 59 minutes', 'just under 48h notice, 2h duration', 2, null) $$, :'room_id'),
   '22023'::char(5),
   NULL,
-  'a 2-hour request just under 72 hours notice is rejected'
+  'a 2-hour request just under 48 hours notice is rejected'
 );
 
 select lives_ok(
-  format($$ select public.submit_request(%L::uuid, now() + interval '72 hours 1 minute', now() + interval '74 hours 1 minute', 'just over 72h notice, 2h duration', 2, null) $$, :'room_id'),
-  'the same 2-hour duration just over 72 hours notice succeeds'
+  format($$ select public.submit_request(%L::uuid, now() + interval '48 hours 1 minute', now() + interval '50 hours 1 minute', 'just over 48h notice, 2h duration', 2, null) $$, :'room_id'),
+  'the same 2-hour duration just over 48 hours notice succeeds'
 );
 
 select lives_ok(
   format($$ select public.submit_request(%L::uuid, now() + interval '1 hour', now() + interval '2 hours 59 minutes', 'under 2h duration, short notice', 2, null) $$, :'room_id'),
   'a request just under the 2-hour duration threshold is exempt from advance notice entirely, regardless of how soon it starts'
 );
+
+-- ---- extended-meeting buffer (rule 8: ~1 hour between >2h meetings) ----
+-- An approved 3-hour ("extended") meeting anchors every check below.
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000f1","role":"authenticated"}';
+
+select (public.create_manual_reservation(
+  :'room_id'::uuid, now() + interval '40 days', now() + interval '40 days 3 hours',
+  'anchor extended meeting', 5, 'Anchor Person', 'anchor@c205.test'
+)).id::text as anchor_id \gset
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000f2","role":"authenticated"}';
+
+select throws_ok(
+  format($$ select public.submit_request(%L::uuid, now() + interval '40 days 3 hours 30 minutes', now() + interval '40 days 6 hours', 'too close to the anchor meeting', 4, null) $$, :'room_id'),
+  '22023'::char(5), NULL,
+  'submit_request rejects an extended request starting only 30 minutes after another approved extended meeting ends'
+);
+
+select lives_ok(
+  format($$ select public.submit_request(%L::uuid, now() + interval '40 days 4 hours', now() + interval '40 days 6 hours 30 minutes', 'exactly one hour after the anchor meeting', 4, null) $$, :'room_id'),
+  'submit_request allows an extended request starting exactly one hour after the anchor meeting ends'
+);
+
+select lives_ok(
+  format($$ select public.submit_request(%L::uuid, now() + interval '40 days 3 hours 15 minutes', now() + interval '40 days 4 hours', 'under 2h duration, only 15 minutes after the anchor', 3, null) $$, :'room_id'),
+  'a request under the 2-hour duration threshold is exempt from the extended-meeting buffer even with a small gap'
+);
+
+-- modify_reservation: moving a pending extended request into the buffer
+-- zone requires an override, same shape as availability/advance-notice.
+select (public.submit_request(
+  :'room_id'::uuid, now() + interval '41 days 20 hours', now() + interval '41 days 23 hours',
+  'to be moved next to the anchor meeting', 4, null
+)).id::text as buffer_move_id \gset
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000f1","role":"authenticated"}';
+
+select throws_ok(
+  format($$ select public.modify_reservation(%L::uuid, 1, p_starts_at := now() + interval '40 days 3 hours 20 minutes', p_ends_at := now() + interval '40 days 6 hours 20 minutes') $$, :'buffer_move_id'),
+  '22023'::char(5), NULL,
+  'modify_reservation refuses to move a request into the buffer zone without an override'
+);
+
+select lives_ok(
+  format($$ select public.modify_reservation(%L::uuid, 1, p_starts_at := now() + interval '40 days 3 hours 20 minutes', p_ends_at := now() + interval '40 days 6 hours 20 minutes', p_override := true, p_override_reason := 'USG approved back-to-back scheduling') $$, :'buffer_move_id'),
+  'modify_reservation succeeds once an override and reason are given'
+);
+
+select ok(
+  (select admin_override from public.reservations where id = :'buffer_move_id'::uuid),
+  'the buffer-zone modification is recorded as an admin override'
+);
+
+-- derived warning: a plain pending extended request has none, then gains
+-- EXTENDED_MEETING_BUFFER_REQUIRED once an admin approves another extended
+-- meeting nearby — without ever touching the pending request itself.
+select (public.submit_request(
+  :'room_id'::uuid, now() + interval '42 days 10 hours', now() + interval '42 days 13 hours',
+  'will gain a buffer warning, never touched', 4, null
+)).id::text as buffer_warn_id \gset
+
+select is(
+  public.reservation_conflict_warnings(:'buffer_warn_id'::uuid),
+  '{}'::text[],
+  'a plain, well-spaced pending extended request has no warnings'
+);
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000f1","role":"authenticated"}';
+
+select lives_ok(
+  format($$ select public.create_manual_reservation(%L::uuid, now() + interval '42 days 13 hours 20 minutes', now() + interval '42 days 16 hours 20 minutes', 'a second extended meeting, right next door', 4, 'Someone Else', 'else@c205.test') $$, :'room_id'),
+  'an admin books another extended meeting only 20 minutes after the pending request above'
+);
+
+select is(
+  public.reservation_conflict_warnings(:'buffer_warn_id'::uuid),
+  array['EXTENDED_MEETING_BUFFER_REQUIRED'],
+  'the pending request now carries a derived buffer warning'
+);
+
+select is(
+  (select status::text from public.reservations where id = :'buffer_warn_id'::uuid),
+  'PENDING',
+  'and yet the pending request itself is untouched'
+);
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000f2","role":"authenticated"}';
 
 -- ---- idempotency: replay vs. payload mismatch -------------------------
 select (public.submit_request(

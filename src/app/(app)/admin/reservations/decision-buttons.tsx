@@ -138,7 +138,12 @@ export function ApproveButton({
           setStale(true);
           return;
         }
-        if (!override && (result.code === "OUTSIDE_AVAILABILITY" || result.code === "ADVANCE_NOTICE_REQUIRED")) {
+        if (
+          !override &&
+          (result.code === "OUTSIDE_AVAILABILITY" ||
+            result.code === "ADVANCE_NOTICE_REQUIRED" ||
+            result.code === "EXTENDED_MEETING_BUFFER_REQUIRED")
+        ) {
           setNeedsOverride(result.error);
           setOverrideOpen(true);
           return;

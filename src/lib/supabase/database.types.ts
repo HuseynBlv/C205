@@ -885,6 +885,15 @@ export type Database = {
         Args: { p_reservation_id: string }
         Returns: string[]
       }
+      reservation_extended_meeting_nearby: {
+        Args: {
+          p_ends_at: string
+          p_exclude_id?: string
+          p_room_id: string
+          p_starts_at: string
+        }
+        Returns: boolean
+      }
       reservation_fits_availability: {
         Args: { p_ends_at: string; p_room_id: string; p_starts_at: string }
         Returns: boolean

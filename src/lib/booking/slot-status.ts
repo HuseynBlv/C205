@@ -96,8 +96,8 @@ export function evaluateRequestedRange(
   const durationMs = opts.endsAtMs - opts.startsAtMs;
   const leadMs = opts.startsAtMs - opts.nowMs;
   const twoHoursMs = 2 * 60 * 60 * 1000;
-  const seventyTwoHoursMs = 72 * 60 * 60 * 1000;
-  if (durationMs >= twoHoursMs && leadMs < seventyTwoHoursMs) {
+  const fortyEightHoursMs = 48 * 60 * 60 * 1000;
+  if (durationMs >= twoHoursMs && leadMs < fortyEightHoursMs) {
     return { code: "ADVANCE_NOTICE_REQUIRED", overlapsPending };
   }
   return { code: null, overlapsPending };

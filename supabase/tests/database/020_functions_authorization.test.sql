@@ -233,7 +233,7 @@ select throws_ok(
   format($$ select public.submit_request(%L::uuid, now() + interval '1 day', now() + interval '1 day 3 hours', 'too soon for a 3-hour booking', 2, null) $$, (select id from public.rooms where code = 'C205')),
   '22023'::char(5),
   NULL,
-  'submit_request enforces 72-hour advance notice for a 2+ hour request'
+  'submit_request enforces 48-hour advance notice for a 2+ hour request'
 );
 
 reset role;
