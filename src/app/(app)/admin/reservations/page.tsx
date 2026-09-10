@@ -113,7 +113,7 @@ async function RealAdminReservations({ roomId }: { roomId: string | null }) {
             </div>
           </section>
 
-          <ArchivedSection reservations={archived} formatRange={formatRange} />
+          <ArchivedSection reservations={archived} />
         </>
       )}
     </div>

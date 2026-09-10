@@ -7,19 +7,35 @@ import { Button } from "@/components/ui/button";
 import { ReservationStatusBadge } from "@/components/status/status-badge";
 import { UnarchiveButton } from "@/app/(app)/admin/reservations/decision-buttons";
 import { ReservationDetailsSheet } from "@/components/admin/reservation-details-sheet";
+import { ROOM_TIMEZONE } from "@/lib/config";
 import type { Reservation } from "@/lib/booking/actions";
+
+/** Duplicated from page.tsx rather than passed in as a prop — a Server
+ * Component can't hand a plain function to a Client Component across the
+ * RSC boundary (only Server Actions cross), and this route is dynamic, so
+ * `next build` never actually executes it to catch that at build time. */
+function formatRange(startsAt: string, endsAt: string) {
+  const start = new Date(startsAt);
+  const end = new Date(endsAt);
+  const dateFmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: ROOM_TIMEZONE,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  const timeFmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: ROOM_TIMEZONE,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${dateFmt.format(start)} · ${timeFmt.format(start)}–${timeFmt.format(end)}`;
+}
 
 /** Archived decision-history entries are tucked behind a collapsed toggle
  * by default — the whole point of archiving is a shorter default list, so
  * showing them inline would defeat it. Nothing here is ever deleted;
  * "Unarchive" always brings a row straight back to Decision history. */
-export function ArchivedSection({
-  reservations,
-  formatRange,
-}: {
-  reservations: Reservation[];
-  formatRange: (startsAt: string, endsAt: string) => string;
-}) {
+export function ArchivedSection({ reservations }: { reservations: Reservation[] }) {
   const [open, setOpen] = useState(false);
 
   if (reservations.length === 0) return null;
