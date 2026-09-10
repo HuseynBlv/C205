@@ -1,0 +1,36 @@
+name: Send queued emails
+
+# Vercel's own cron (see vercel.json) only runs once a day on the Hobby
+# plan — this workflow is the actual near-real-time trigger for
+# /api/cron/send-emails, running every 5 minutes. Free and unlimited on
+# this public repo (GitHub Actions minutes are only capped on private
+# repos). Vercel's daily cron stays as-is, purely as a redundant
+# fallback if this workflow is ever disabled or GitHub Actions has an
+# outage — draining the same queue twice is harmless (claim_pending_emails
+# uses FOR UPDATE SKIP LOCKED, so overlapping calls never double-send).
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  # Lets anyone with write access trigger a manual drain from the Actions
+  # tab — handy for testing without waiting for the next scheduled tick.
+  workflow_dispatch: {}
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the email-sending worker
+        run: |
+          response=$(curl -s -w "\n%{http_code}" https://c205.usg.az/api/cron/send-emails \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "Response: $body"
+          echo "HTTP status: $http_code"
+          # Only an HTTP-level failure (bad/missing secret, route crashed)
+          # fails this job — a 200 with some per-row "failed" count inside
+          # the body is an expected, already-retryable state (see
+          # mark_email_failed's 5-attempt threshold), not a CI failure.
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            exit 1
+          fi
