@@ -2,8 +2,9 @@
 -- checks, status-transition rules, and the availability/overlap/
 -- advance-notice guards inside submit_request / approve_request /
 -- reject_request / cancel_reservation / archive_reservation /
--- unarchive_reservation / create_manual_reservation /
--- publish_availability_window / create_blocked_interval.
+-- unarchive_reservation / delete_reservation_permanently /
+-- create_manual_reservation / publish_availability_window /
+-- create_blocked_interval.
 --
 -- Deeper scenarios (exact time boundaries, idempotency, modify_reservation,
 -- derived pending-request warnings, rollback-on-failure) live in
@@ -11,7 +12,7 @@
 -- role/JWT-claim simulation technique.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(32);
+select plan(40);
 
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
 values
@@ -323,6 +324,60 @@ select throws_ok(
   format($$ select public.unarchive_reservation(%L::uuid, 5) $$, :'target_reservation_id'),
   '22023'::char(5), NULL,
   'unarchive_reservation refuses a reservation that is not currently archived'
+);
+
+-- ---- delete_reservation_permanently ---------------------------------------
+select lives_ok(
+  format($$ select public.archive_reservation(%L::uuid, 5) $$, :'target_reservation_id'),
+  'target_reservation_id is archived again ahead of the permanent-delete tests'
+);
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000e3","role":"authenticated"}';
+
+select throws_ok(
+  format($$ select public.delete_reservation_permanently(%L::uuid, 6) $$, :'target_reservation_id'),
+  '42501'::char(5), NULL,
+  'a non-admin cannot permanently delete a reservation'
+);
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000e1","role":"authenticated"}';
+
+select throws_ok(
+  format($$ select public.delete_reservation_permanently(%L::uuid, 1) $$, :'stale_target_id'),
+  '22023'::char(5), NULL,
+  'delete_reservation_permanently refuses a reservation that has never been archived'
+);
+
+select throws_ok(
+  format($$ select public.delete_reservation_permanently(%L::uuid, 999) $$, :'target_reservation_id'),
+  '40001'::char(5), NULL,
+  'delete_reservation_permanently rejects a stale expected_version'
+);
+
+select lives_ok(
+  format($$ select public.delete_reservation_permanently(%L::uuid, 6) $$, :'target_reservation_id'),
+  'an admin can permanently delete an archived reservation'
+);
+
+select ok(
+  (select count(*) from public.reservations where id = :'target_reservation_id'::uuid) = 0,
+  'the reservation row is gone after permanent delete'
+);
+
+select ok(
+  (select count(*) from public.audit_events where action = 'RESERVATION_DELETED_PERMANENTLY' and entity_id = :'target_reservation_id') = 1,
+  'the permanent delete itself is recorded in the audit trail'
+);
+
+select ok(
+  (select count(*) from public.audit_events
+   where entity_id = :'target_reservation_id'
+     and action in ('RESERVATION_SUBMITTED', 'RESERVATION_APPROVED', 'RESERVATION_CANCELLED', 'RESERVATION_ARCHIVED', 'RESERVATION_UNARCHIVED')) >= 5,
+  'every prior audit event for this reservation survives the delete'
 );
 
 -- ---- create_manual_reservation: admin-only, atomic create+approve ------

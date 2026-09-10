@@ -205,6 +205,22 @@ export async function unarchiveReservationAction(input: {
   return result;
 }
 
+export async function deleteReservationPermanentlyAction(input: {
+  reservationId: string;
+  expectedVersion: number;
+}): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("delete_reservation_permanently", {
+    p_reservation_id: input.reservationId,
+    p_expected_version: input.expectedVersion,
+  });
+  const result = toResult(data, error);
+  if (result.ok) {
+    revalidatePath("/admin/reservations");
+  }
+  return result;
+}
+
 /** Fresh copy of one reservation — used to show current values and force
  * a new decision when a STALE_RESERVATION_VERSION error means whatever
  * the admin was looking at has already changed. */

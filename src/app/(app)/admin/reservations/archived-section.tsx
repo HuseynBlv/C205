@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ReservationStatusBadge } from "@/components/status/status-badge";
-import { UnarchiveButton } from "@/app/(app)/admin/reservations/decision-buttons";
+import { DeletePermanentlyButton, UnarchiveButton } from "@/app/(app)/admin/reservations/decision-buttons";
 import { ReservationDetailsSheet } from "@/components/admin/reservation-details-sheet";
 import { ROOM_TIMEZONE } from "@/lib/config";
 import type { Reservation } from "@/lib/booking/actions";
@@ -33,8 +33,10 @@ function formatRange(startsAt: string, endsAt: string) {
 
 /** Archived decision-history entries are tucked behind a collapsed toggle
  * by default — the whole point of archiving is a shorter default list, so
- * showing them inline would defeat it. Nothing here is ever deleted;
- * "Unarchive" always brings a row straight back to Decision history. */
+ * showing them inline would defeat it. "Unarchive" always brings a row
+ * straight back to Decision history; "Delete permanently" is the one
+ * genuinely irreversible action here, and only ever offered from this
+ * already-archived list, never from the live Decision history above. */
 export function ArchivedSection({ reservations }: { reservations: Reservation[] }) {
   const [open, setOpen] = useState(false);
 
@@ -73,6 +75,7 @@ export function ArchivedSection({ reservations }: { reservations: Reservation[] 
                     }
                   />
                   <UnarchiveButton reservationId={r.id} expectedVersion={r.version} />
+                  <DeletePermanentlyButton reservationId={r.id} expectedVersion={r.version} />
                 </div>
               </CardContent>
             </Card>

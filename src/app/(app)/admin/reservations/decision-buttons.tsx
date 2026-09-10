@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, ArchiveRestore, CheckCircle2, X, XCircle } from "lucide-react";
+import { Archive, ArchiveRestore, CheckCircle2, Trash2, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -20,6 +20,7 @@ import {
   approveRequestAction,
   archiveReservationAction,
   cancelReservationAction,
+  deleteReservationPermanentlyAction,
   rejectRequestAction,
   unarchiveReservationAction,
 } from "@/lib/booking/actions";
@@ -364,5 +365,74 @@ export function UnarchiveButton({
         <p className="max-w-48 text-right text-xs text-destructive">{error}</p>
       ) : null}
     </div>
+  );
+}
+
+/** Only ever offered on an already-archived reservation (the server
+ * enforces this too) — archiving is the reversible first step, this is
+ * the deliberate, irreversible second one, so it keeps its own
+ * confirmation dialog unlike Archive/Unarchive. */
+export function DeletePermanentlyButton({
+  reservationId,
+  expectedVersion,
+  onSuccess,
+}: {
+  reservationId: string;
+  expectedVersion: number;
+  onSuccess?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const [isPending, startTransition] = useTransition();
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setError(null); setStale(false); } }}>
+      <DialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="outline"
+          className="border-[color-mix(in_oklab,var(--destructive)_55%,var(--border))] text-destructive hover:bg-[color-mix(in_oklab,var(--destructive)_10%,white)]"
+        >
+          <Trash2 className="size-3.5" /> Delete permanently
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Permanently delete this reservation?</DialogTitle>
+          <DialogDescription>
+            This removes the reservation record itself and cannot be undone. The audit trail entry for this
+            action — and every earlier one for this reservation — is kept regardless.
+          </DialogDescription>
+        </DialogHeader>
+        {stale ? <StaleVersionNotice /> : error ? (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        <DialogFooter>
+          <Button
+            variant="destructive"
+            disabled={isPending}
+            onClick={() => {
+              setError(null);
+              setStale(false);
+              startTransition(async () => {
+                const result = await deleteReservationPermanentlyAction({ reservationId, expectedVersion });
+                if (!result.ok) {
+                  if (result.code === "STALE_RESERVATION_VERSION") setStale(true);
+                  else setError(result.error);
+                  return;
+                }
+                setOpen(false);
+                onSuccess?.();
+              });
+            }}
+          >
+            {isPending ? "Deleting…" : "Delete permanently"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
