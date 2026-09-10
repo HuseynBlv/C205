@@ -4,11 +4,14 @@ import { useEffect, useRef } from "react";
 import { Ban, Check, Clock, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { generateTimeOptions } from "@/lib/time-options";
+import { ROOM_OPEN_TIME, ROOM_CLOSE_TIME } from "@/lib/config";
 import type { SlotStatus } from "@/lib/booking/slot-status";
 
 const allOptions = generateTimeOptions(30);
-// Room hours preview window — matches the calendar page's illustrated range.
-const options = allOptions.filter((o) => o.value >= "07:00" && o.value <= "21:00");
+// The room's fixed operating hours — nothing outside this range can ever
+// actually be booked (see ROOM_OPEN_TIME/ROOM_CLOSE_TIME's own comment),
+// so it's never offered as a choice here either.
+const options = allOptions.filter((o) => o.value >= ROOM_OPEN_TIME && o.value <= ROOM_CLOSE_TIME);
 
 const STATUS_META: Record<SlotStatus, { label: string; icon: React.ElementType; className: string }> = {
   available: {

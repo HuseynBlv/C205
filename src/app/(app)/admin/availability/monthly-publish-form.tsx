@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { publishAvailabilityMonthAction } from "@/lib/booking/availability-actions";
+import { ROOM_OPEN_TIME, ROOM_CLOSE_TIME } from "@/lib/config";
 
 const WEEKDAYS = [
   { value: 1, label: "Mon" },
@@ -77,11 +78,25 @@ export function MonthlyPublishForm({ roomId }: { roomId: string }) {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="month-publish-start">Start time</Label>
-            <Input id="month-publish-start" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+            <Input
+              id="month-publish-start"
+              type="time"
+              min={ROOM_OPEN_TIME}
+              max={ROOM_CLOSE_TIME}
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="month-publish-end">End time</Label>
-            <Input id="month-publish-end" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+            <Input
+              id="month-publish-end"
+              type="time"
+              min={ROOM_OPEN_TIME}
+              max={ROOM_CLOSE_TIME}
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+            />
           </div>
         </div>
 

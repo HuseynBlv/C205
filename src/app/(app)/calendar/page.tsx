@@ -8,7 +8,7 @@ import { AutoRefresh } from "@/components/shared/auto-refresh";
 import { CalendarLoadingState } from "@/components/states/loading-state";
 import { NavButton } from "@/components/shared/nav-button";
 import { fixtureAvailability } from "@/lib/fixtures/data";
-import { useFixtures, ROOM_NAME, ROOM_TIMEZONE } from "@/lib/config";
+import { useFixtures, ROOM_NAME, ROOM_TIMEZONE, ROOM_OPEN_TIME, ROOM_CLOSE_TIME } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { CalendarView, type CalendarEvent } from "@/components/calendar/calendar-view";
 import type { BusinessHoursInput } from "@fullcalendar/core";
@@ -37,25 +37,6 @@ function minutesToTimeString(minutes: number): string {
   const h = Math.floor(clamped / 60);
   const m = clamped % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
-}
-
-/** The calendar's visible hour range — the earliest start / latest end
- * across all published windows, padded by an hour and clamped to a sane
- * bound, rather than an arbitrary fixed 7am-9pm regardless of what's
- * actually published. Falls back to that same 7am-9pm default when
- * nothing's published yet. */
-function computeScheduleRange(windows: Tables<"availability_windows">[]): { start: string; end: string } {
-  if (windows.length === 0) return { start: "07:00:00", end: "21:00:00" };
-  let min = Infinity;
-  let max = -Infinity;
-  for (const w of windows) {
-    min = Math.min(min, bakuMinutesOfDay(w.starts_at));
-    max = Math.max(max, bakuMinutesOfDay(w.ends_at));
-  }
-  return {
-    start: minutesToTimeString(Math.min(min - 60, 6 * 60)),
-    end: minutesToTimeString(Math.max(max + 60, 22 * 60)),
-  };
 }
 
 /** One rule per ISO weekday (1=Mon..7=Sun) that has at least one
@@ -103,10 +84,11 @@ function timeToMinutes(time: string) {
   return h * 60 + m;
 }
 
-/** Position + height (as % of a 7am–9pm window) for the illuminated bar. */
+/** Position + height (as % of the room's fixed operating hours) for the
+ * illuminated bar. */
 function windowStyle(startTime: string, endTime: string) {
-  const dayStart = timeToMinutes("07:00");
-  const dayEnd = timeToMinutes("21:00");
+  const dayStart = timeToMinutes(ROOM_OPEN_TIME);
+  const dayEnd = timeToMinutes(ROOM_CLOSE_TIME);
   const span = dayEnd - dayStart;
   const top = ((timeToMinutes(startTime) - dayStart) / span) * 100;
   const height = ((timeToMinutes(endTime) - timeToMinutes(startTime)) / span) * 100;
@@ -177,7 +159,6 @@ async function RealCalendar() {
     })),
   ];
 
-  const { start: scheduleStart, end: scheduleEnd } = computeScheduleRange(windowRows);
   const businessHours = computeBusinessHours(windowRows);
 
   return (
@@ -185,8 +166,8 @@ async function RealCalendar() {
       <CalendarView
         events={events}
         roomId={room?.id ?? null}
-        scheduleStart={scheduleStart}
-        scheduleEnd={scheduleEnd}
+        scheduleStart={`${ROOM_OPEN_TIME}:00`}
+        scheduleEnd={`${ROOM_CLOSE_TIME}:00`}
         businessHours={businessHours}
       />
     </Suspense>
@@ -234,7 +215,7 @@ function FixtureCalendar() {
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div>
               <p className="text-sm font-medium text-foreground">This week at C205</p>
-              <p className="text-xs text-muted-foreground">7:00 AM – 9:00 PM window shown</p>
+              <p className="text-xs text-muted-foreground">8:00 AM – 11:00 PM window shown</p>
             </div>
             <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">

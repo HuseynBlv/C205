@@ -20,7 +20,7 @@ import type {
 import { DoorOpen } from "lucide-react";
 import { formatInTimeZone } from "date-fns-tz";
 import { cn } from "@/lib/utils";
-import { ROOM_NAME, ROOM_TIMEZONE } from "@/lib/config";
+import { ROOM_NAME, ROOM_TIMEZONE, ROOM_OPEN_TIME, ROOM_CLOSE_TIME } from "@/lib/config";
 import { roomLocalToUtcIso } from "@/lib/booking/timezone";
 import { evaluateTimeSelection } from "@/lib/booking/selection-evaluation";
 import { computeDaySummary, type DaySummary } from "@/lib/booking/day-availability-client";
@@ -116,8 +116,8 @@ interface HoverPreview {
 export function CalendarView({
   events,
   roomId,
-  scheduleStart = "07:00:00",
-  scheduleEnd = "21:00:00",
+  scheduleStart = `${ROOM_OPEN_TIME}:00`,
+  scheduleEnd = `${ROOM_CLOSE_TIME}:00`,
   businessHours,
 }: {
   events: CalendarEvent[];

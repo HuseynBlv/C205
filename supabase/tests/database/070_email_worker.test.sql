@@ -154,9 +154,11 @@ from public.rooms where code = 'C205';
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000c2","role":"authenticated"}';
 
+select (now() + interval '200 days')::date as day200 \gset
+
 select (public.submit_request(
   (select id from public.rooms where code = 'C205'),
-  now() + interval '200 days', now() + interval '200 days 1 hour',
+  (:'day200'::date + time '09:00') at time zone 'Asia/Baku', (:'day200'::date + time '10:00') at time zone 'Asia/Baku',
   'notification lookup test', 3, null
 )).id as notif_reservation_id \gset
 

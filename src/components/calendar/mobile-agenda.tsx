@@ -6,7 +6,7 @@ import { DoorOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TimeSlotPicker } from "@/components/booking/time-slot-picker";
 import { cn } from "@/lib/utils";
-import { ROOM_NAME, ROOM_TIMEZONE } from "@/lib/config";
+import { ROOM_NAME, ROOM_TIMEZONE, ROOM_OPEN_TIME, ROOM_CLOSE_TIME } from "@/lib/config";
 import { generateTimeOptions } from "@/lib/time-options";
 import { getSlotStatus } from "@/lib/booking/slot-status";
 import { buildDayAvailabilityFromEvents, splitNaive } from "@/lib/booking/day-availability-client";
@@ -33,12 +33,12 @@ const KIND_META: Record<EntryKind, { label: string; dotClass: string; textClass:
 };
 
 // The same 30-minute options the request form's own picker offers, capped
-// to the same 7am-9pm preview window — see time-slot-picker.tsx's own
+// to the room's fixed operating hours — see time-slot-picker.tsx's own
 // comment. Reused here (rather than the calendar's actual computed
 // schedule range) so both tap-to-select surfaces behave identically.
 const TIME_OPTIONS = generateTimeOptions(30)
   .map((o) => o.value)
-  .filter((v) => v >= "07:00" && v <= "21:00");
+  .filter((v) => v >= ROOM_OPEN_TIME && v <= ROOM_CLOSE_TIME);
 
 function timeToMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);

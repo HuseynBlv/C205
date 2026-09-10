@@ -1,9 +1,10 @@
 -- Booking-engine function tests: authentication, role/account-state
 -- checks, status-transition rules, and the availability/overlap/
--- advance-notice guards inside submit_request / approve_request /
--- reject_request / cancel_reservation / archive_reservation /
--- unarchive_reservation / delete_reservation_permanently /
--- create_manual_reservation / publish_availability_window /
+-- advance-notice/room-hours guards inside submit_request /
+-- approve_request / reject_request / cancel_reservation /
+-- archive_reservation / unarchive_reservation /
+-- delete_reservation_permanently / create_manual_reservation /
+-- publish_availability_window / publish_availability_month /
 -- create_blocked_interval.
 --
 -- Deeper scenarios (exact time boundaries, idempotency, modify_reservation,
@@ -12,7 +13,7 @@
 -- role/JWT-claim simulation technique.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(40);
+select plan(46);
 
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
 values
@@ -67,11 +68,13 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000e2","role":"authenticated"}';
 
+select (now() + interval '5 days')::date as day5 \gset
+
 select lives_ok(
-  $$ select public.submit_request(
-       (select id from public.rooms where code = 'C205'),
-       now() + interval '5 days', now() + interval '5 days 1 hour', 'team sync', 3, null
-     ) $$,
+  format(
+    $$ select public.submit_request(%L::uuid, (%L::date + time '09:00') at time zone 'Asia/Baku', (%L::date + time '10:00') at time zone 'Asia/Baku', 'team sync', 3, null) $$,
+    (select id from public.rooms where code = 'C205'), :'day5', :'day5'
+  ),
   'an ACTIVE user can submit a request for themselves'
 );
 
@@ -163,9 +166,12 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000e2","role":"authenticated"}';
 
+select (now() + interval '8 days')::date as day8 \gset
+
 select (public.submit_request(
   (select id from public.rooms where code = 'C205'),
-  now() + interval '8 days', now() + interval '8 days 1 hour', 'stale version subject', 2, null
+  (:'day8'::date + time '09:00') at time zone 'Asia/Baku', (:'day8'::date + time '10:00') at time zone 'Asia/Baku',
+  'stale version subject', 2, null
 )).id::text as stale_target_id
 \gset
 
@@ -190,14 +196,20 @@ reset role;
 -- separate, always-rejected-at-submission case (covered further down by
 -- "far outside published availability"'s sibling scenario is not this one;
 -- see RESERVATION_CONFLICT-at-submission if that's ever added).
+select (now() + interval '12 days')::date as day12 \gset
+
 select (public.submit_request(
   (select id from public.rooms where code = 'C205'),
-  now() + interval '12 days', now() + interval '12 days 1 hour', 'overlap pair A', 2, null
+  (:'day12'::date + time '09:00') at time zone 'Asia/Baku', (:'day12'::date + time '10:00') at time zone 'Asia/Baku',
+  'overlap pair A', 2, null
 )).id::text as overlap_a_id
 \gset
 
 select lives_ok(
-  format($$ select public.submit_request(%L::uuid, now() + interval '12 days 30 minutes', now() + interval '12 days 1 hour 30 minutes', 'overlap pair B', 2, null) $$, (select id from public.rooms where code = 'C205')),
+  format(
+    $$ select public.submit_request(%L::uuid, (%L::date + time '09:30') at time zone 'Asia/Baku', (%L::date + time '10:30') at time zone 'Asia/Baku', 'overlap pair B', 2, null) $$,
+    (select id from public.rooms where code = 'C205'), :'day12', :'day12'
+  ),
   'a second PENDING request overlapping the first PENDING one is still allowed to be submitted'
 );
 
@@ -223,19 +235,76 @@ select throws_ok(
 );
 
 -- ---- OUTSIDE_AVAILABILITY -----------------------------------------------
+-- An explicit safe hour, so this unambiguously tests OUTSIDE_AVAILABILITY
+-- rather than potentially hitting OUTSIDE_ROOM_HOURS instead (same 22023).
+select (now() + interval '90 days')::date as day90a \gset
+
 select throws_ok(
-  format($$ select public.submit_request(%L::uuid, now() + interval '90 days', now() + interval '90 days 1 hour', 'far outside published availability', 2, null) $$, (select id from public.rooms where code = 'C205')),
+  format(
+    $$ select public.submit_request(%L::uuid, (%L::date + time '09:00') at time zone 'Asia/Baku', (%L::date + time '10:00') at time zone 'Asia/Baku', 'far outside published availability', 2, null) $$,
+    (select id from public.rooms where code = 'C205'), :'day90a', :'day90a'
+  ),
   '22023'::char(5),
   NULL,
   'submit_request rejects a time outside the published availability window'
 );
 
 -- ---- ADVANCE_NOTICE_REQUIRED --------------------------------------------
+-- An explicit, safely-within-room-hours time tomorrow — otherwise this
+-- could silently end up testing OUTSIDE_ROOM_HOURS instead (same 22023
+-- errcode) depending on what hour it happens to be when this runs.
+select (now() + interval '1 day')::date as day1 \gset
+
 select throws_ok(
-  format($$ select public.submit_request(%L::uuid, now() + interval '1 day', now() + interval '1 day 3 hours', 'too soon for a 3-hour booking', 2, null) $$, (select id from public.rooms where code = 'C205')),
+  format(
+    $$ select public.submit_request(%L::uuid, (%L::date + time '09:00') at time zone 'Asia/Baku', (%L::date + time '12:00') at time zone 'Asia/Baku', 'too soon for a 3-hour booking', 2, null) $$,
+    (select id from public.rooms where code = 'C205'), :'day1', :'day1'
+  ),
   '22023'::char(5),
   NULL,
   'submit_request enforces 48-hour advance notice for a 2+ hour request'
+);
+
+-- ---- OUTSIDE_ROOM_HOURS: the room can only be reserved 08:00-23:00 -----
+select (current_date + interval '13 days')::date as hours_day \gset
+select (current_date + interval '14 days')::date as hours_day2 \gset
+
+select throws_ok(
+  format($$ select public.submit_request(%L::uuid, (%L::date + time '07:30') at time zone 'Asia/Baku', (%L::date + time '08:30') at time zone 'Asia/Baku', 'starts before 8am', 2, null) $$, (select id from public.rooms where code = 'C205'), :'hours_day', :'hours_day'),
+  '22023'::char(5),
+  NULL,
+  'submit_request rejects a request starting before 08:00 room-local time'
+);
+
+select throws_ok(
+  format($$ select public.submit_request(%L::uuid, (%L::date + time '22:30') at time zone 'Asia/Baku', (%L::date + time '23:30') at time zone 'Asia/Baku', 'ends after 11pm', 2, null) $$, (select id from public.rooms where code = 'C205'), :'hours_day', :'hours_day'),
+  '22023'::char(5),
+  NULL,
+  'submit_request rejects a request ending after 23:00 room-local time'
+);
+
+select lives_ok(
+  format($$ select public.submit_request(%L::uuid, (%L::date + time '08:00') at time zone 'Asia/Baku', (%L::date + time '08:30') at time zone 'Asia/Baku', 'starts exactly at 8am', 2, null) $$, (select id from public.rooms where code = 'C205'), :'hours_day', :'hours_day'),
+  'submit_request allows a request starting exactly at 08:00'
+);
+
+select lives_ok(
+  format($$ select public.submit_request(%L::uuid, (%L::date + time '22:30') at time zone 'Asia/Baku', (%L::date + time '23:00') at time zone 'Asia/Baku', 'ends exactly at 11pm', 2, null) $$, (select id from public.rooms where code = 'C205'), :'hours_day', :'hours_day'),
+  'submit_request allows a request ending exactly at 23:00'
+);
+
+select throws_ok(
+  format($$ select public.publish_availability_window(%L::uuid, (%L::date + time '05:00') at time zone 'Asia/Baku', (%L::date + time '09:00') at time zone 'Asia/Baku', 'too early') $$, (select id from public.rooms where code = 'C205'), :'hours_day2', :'hours_day2'),
+  '22023'::char(5),
+  NULL,
+  'publish_availability_window refuses a window starting before 08:00'
+);
+
+select throws_ok(
+  format($$ select public.publish_availability_month(%L::uuid, (now() + interval '4 months')::date, array[1,2,3,4,5], '06:00'::time, '17:00'::time) $$, (select id from public.rooms where code = 'C205')),
+  '22023'::char(5),
+  NULL,
+  'publish_availability_month refuses a start time before 08:00'
 );
 
 reset role;
@@ -396,10 +465,12 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000e1","role":"authenticated"}';
 
+select (now() + interval '9 days')::date as day9 \gset
+
 select is(
   (select status::text from public.create_manual_reservation(
     (select id from public.rooms where code = 'C205'),
-    now() + interval '9 days', now() + interval '9 days 1 hour',
+    (:'day9'::date + time '09:00') at time zone 'Asia/Baku', (:'day9'::date + time '10:00') at time zone 'Asia/Baku',
     'manual booking', 2, 'Someone Else', 'someone@c205.test'
   )),
   'APPROVED',
@@ -411,8 +482,13 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000e3","role":"authenticated"}';
 
+select (now() + interval '10 days')::date as day10 \gset
+
 select throws_ok(
-  format($$ select public.publish_availability_window(%L::uuid, now() + interval '10 days', now() + interval '10 days 4 hours', 'extra hours') $$, (select id from public.rooms where code = 'C205')),
+  format(
+    $$ select public.publish_availability_window(%L::uuid, (%L::date + time '09:00') at time zone 'Asia/Baku', (%L::date + time '13:00') at time zone 'Asia/Baku', 'extra hours') $$,
+    (select id from public.rooms where code = 'C205'), :'day10', :'day10'
+  ),
   '42501'::char(5),
   NULL,
   'a non-admin cannot publish availability'
@@ -423,7 +499,10 @@ set local role authenticated;
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000e1","role":"authenticated"}';
 
 select lives_ok(
-  format($$ select public.publish_availability_window(%L::uuid, now() + interval '10 days', now() + interval '10 days 4 hours', 'extra hours') $$, (select id from public.rooms where code = 'C205')),
+  format(
+    $$ select public.publish_availability_window(%L::uuid, (%L::date + time '09:00') at time zone 'Asia/Baku', (%L::date + time '13:00') at time zone 'Asia/Baku', 'extra hours') $$,
+    (select id from public.rooms where code = 'C205'), :'day10', :'day10'
+  ),
   'an admin can publish an availability window'
 );
 

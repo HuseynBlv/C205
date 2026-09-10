@@ -1002,6 +1002,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      reservation_within_room_hours: {
+        Args: { p_ends_at: string; p_room_id: string; p_starts_at: string }
+        Returns: boolean
+      }
       set_account_status: {
         Args: {
           p_profile_id: string

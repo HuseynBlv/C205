@@ -107,13 +107,22 @@ select is(
 );
 
 -- ---- update_availability_window ------------------------------------------
-select (public.publish_availability_window(:'room_id'::uuid, (now() + interval '170 days'), (now() + interval '170 days 2 hours'), 'to be edited')).id as edit_window_id \gset
+select (now() + interval '170 days')::date as day170 \gset
+
+select (public.publish_availability_window(
+  :'room_id'::uuid,
+  (:'day170'::date + time '09:00') at time zone 'Asia/Baku', (:'day170'::date + time '11:00') at time zone 'Asia/Baku',
+  'to be edited'
+)).id as edit_window_id \gset
 
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000b2","role":"authenticated"}';
 
 select throws_ok(
-  format($$ select public.update_availability_window(%L::uuid, now() + interval '170 days', now() + interval '170 days 3 hours', 'nope') $$, :'edit_window_id'),
+  format(
+    $$ select public.update_availability_window(%L::uuid, (%L::date + time '09:00') at time zone 'Asia/Baku', (%L::date + time '12:00') at time zone 'Asia/Baku', 'nope') $$,
+    :'edit_window_id', :'day170', :'day170'
+  ),
   '42501'::char(5), NULL,
   'a non-admin cannot edit an availability window'
 );
@@ -122,13 +131,19 @@ set local role authenticated;
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000b1","role":"authenticated"}';
 
 select throws_ok(
-  format($$ select public.update_availability_window(%L::uuid, now() + interval '170 days 3 hours', now() + interval '170 days', 'bad range') $$, :'edit_window_id'),
+  format(
+    $$ select public.update_availability_window(%L::uuid, (%L::date + time '12:00') at time zone 'Asia/Baku', (%L::date + time '09:00') at time zone 'Asia/Baku', 'bad range') $$,
+    :'edit_window_id', :'day170', :'day170'
+  ),
   '22023'::char(5), NULL,
   'update_availability_window rejects ends_at at or before starts_at'
 );
 
 select lives_ok(
-  format($$ select public.update_availability_window(%L::uuid, now() + interval '170 days', now() + interval '170 days 4 hours', 'extended') $$, :'edit_window_id'),
+  format(
+    $$ select public.update_availability_window(%L::uuid, (%L::date + time '09:00') at time zone 'Asia/Baku', (%L::date + time '13:00') at time zone 'Asia/Baku', 'extended') $$,
+    :'edit_window_id', :'day170', :'day170'
+  ),
   'an admin can edit an availability window'
 );
 
@@ -176,10 +191,19 @@ select ok(
 );
 
 -- ---- remove_availability_windows_in_range (bulk removal) -----------------
-select public.publish_availability_window(:'room_id'::uuid, now() + interval '300 days', now() + interval '300 days 2 hours', 'bulk 1');
-select public.publish_availability_window(:'room_id'::uuid, now() + interval '302 days', now() + interval '302 days 2 hours', 'bulk 2');
-select public.publish_availability_window(:'room_id'::uuid, now() + interval '304 days', now() + interval '304 days 2 hours', 'bulk 3');
-select public.publish_availability_window(:'room_id'::uuid, now() + interval '320 days', now() + interval '320 days 2 hours', 'outside range, must survive');
+-- These windows' own creation is gated by room hours, so each gets an
+-- explicit safe time; the removal range itself (299-310 days out, below)
+-- doesn't need one — a >=1-day margin on every side already guarantees
+-- correct set-inclusion regardless of hour-of-day.
+select (now() + interval '300 days')::date as day300 \gset
+select (now() + interval '302 days')::date as day302 \gset
+select (now() + interval '304 days')::date as day304 \gset
+select (now() + interval '320 days')::date as day320 \gset
+
+select public.publish_availability_window(:'room_id'::uuid, (:'day300'::date + time '09:00') at time zone 'Asia/Baku', (:'day300'::date + time '11:00') at time zone 'Asia/Baku', 'bulk 1');
+select public.publish_availability_window(:'room_id'::uuid, (:'day302'::date + time '09:00') at time zone 'Asia/Baku', (:'day302'::date + time '11:00') at time zone 'Asia/Baku', 'bulk 2');
+select public.publish_availability_window(:'room_id'::uuid, (:'day304'::date + time '09:00') at time zone 'Asia/Baku', (:'day304'::date + time '11:00') at time zone 'Asia/Baku', 'bulk 3');
+select public.publish_availability_window(:'room_id'::uuid, (:'day320'::date + time '09:00') at time zone 'Asia/Baku', (:'day320'::date + time '11:00') at time zone 'Asia/Baku', 'outside range, must survive');
 
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000b2","role":"authenticated"}';
