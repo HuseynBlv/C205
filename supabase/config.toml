@@ -63,24 +63,33 @@ content_path = "./supabase/templates/recovery.html"
 # enable_confirmations, etc.) is inherited from [auth] above unchanged.
 # `supabase start` (local dev) never reads this block; only `config push`
 # does, and only for the project whose ref matches `project_id` below.
-#
-# PLACEHOLDER: replace site_url and additional_redirect_urls with the real
-# production domain once it's known, then re-run `supabase config push`.
-#
-# IMPORTANT: as of 2026-09-06, `config push` to this project rejects the
-# WHOLE auth update (not just the template part) with "Email template
-# modification is not available for free tier projects using the default
-# email provider" whenever [auth.email.template.*] is included — until a
-# custom SMTP provider is configured (Project Settings → Auth → SMTP
-# Settings) or the project is upgraded off the free tier, pushing site_url
-# changes requires temporarily commenting out the two
-# [auth.email.template.*] blocks above, pushing, then restoring them
-# (do NOT leave them commented — that breaks local dev's own /auth/confirm
-# flow). Once SMTP is configured, `config push` should carry the templates
-# through in one step with no special handling.
 [remotes.production]
 project_id = "huxclffxxtbhawiajsxm"
 
 [remotes.production.auth]
-site_url = "https://c205-prod.example.com"
-additional_redirect_urls = ["https://c205-prod.example.com/**"]
+site_url = "https://c205.usg.az"
+additional_redirect_urls = ["https://c205.usg.az/**", "https://c205.vercel.app/**"]
+
+# Resolves the free-tier "Email template modification is not available ...
+# using the default email provider" rejection that previously blocked any
+# config push touching [auth.email.template.*] (see git history for the
+# old temporarily-comment-out-the-templates workaround this replaces) —
+# once a custom SMTP provider is set, that restriction lifts entirely and
+# templates push through normally, same as everything else here.
+#
+# smtp.resend.com / user "resend" / the API key as the password is
+# Resend's standard SMTP relay convention, not project-specific. `pass`
+# reads from EMAIL_PROVIDER_API_KEY — the same Resend key already used by
+# src/lib/email/resend.ts — via the CLI's own env(...) indirection, so the
+# literal key is never committed here. Must be a real exported shell env
+# var (not just present in .env.local, which only Next.js itself reads)
+# whenever `config push` runs. admin_email must be on the now-verified
+# mail.c205.usg.az domain.
+[remotes.production.auth.email.smtp]
+enabled = true
+host = "smtp.resend.com"
+port = 465
+user = "resend"
+pass = "env(EMAIL_PROVIDER_API_KEY)"
+admin_email = "noreply@mail.c205.usg.az"
+sender_name = "C205"
