@@ -168,9 +168,22 @@ Supabase's dashboard.
      against the **hosted Supabase project** once (SQL editor, or `psql`)
      — a different value from whatever your local `.env.local` uses.
    - **Trigger source, in order of how reliably each actually fires (all
-     three call the same idempotent route — running more than one is
-     harmless):**
-     1. **pg_cron, inside Supabase itself (primary)** — the most reliable
+     of these — including the immediate one below — claim rows from the
+     same table with `FOR UPDATE SKIP LOCKED`, so running more than one
+     at the same moment is harmless, never a double send):**
+     0. **Immediate, in-process (the one that actually matters day to
+        day)** — every server action that enqueues an email
+        (`src/lib/booking/actions.ts`) and the signup-confirmation route
+        (`src/app/auth/confirm/route.ts`) fire `drainEmailOutbox()`
+        (`src/lib/email/worker.ts`) via `next/server`'s `after()` right
+        after the mutation succeeds, so mail goes out within the same
+        request instead of waiting for the next scheduled tick below.
+        Never awaited by the user-facing action, and never lets a
+        delivery hiccup turn a successful submission/decision into a
+        failed one — the scheduled triggers below are what actually
+        guarantee delivery if this doesn't get to run for any reason
+        (an interrupted request, a transient Resend failure, etc.).
+     1. **pg_cron, inside Supabase itself (the reliable fallback)** — the most reliable
         option, since it's a real Postgres-native scheduler rather than a
         side feature of some other platform. Enabled by
         `supabase/migrations/20260910130000_email_cron_extensions.sql`

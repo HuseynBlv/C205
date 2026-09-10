@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { mapBookingError, stableErrorCode, type StableErrorCode } from "@/lib/booking/errors";
+import { drainEmailOutbox } from "@/lib/email/worker";
 import type { Tables } from "@/lib/supabase/database.types";
 
 export type Reservation = Tables<"reservations">;
@@ -39,6 +41,14 @@ export async function submitRequestAction(input: {
   if (result.ok) {
     revalidatePath("/requests");
     revalidatePath("/calendar");
+    // submit_request enqueues both the admin notification and the
+    // requester's receipt — send them now instead of making both parties
+    // wait out the cron interval. Never awaited: this runs after the
+    // response is already on its way back, and a delivery hiccup here
+    // must never turn a successful submission into a failed one. The
+    // scheduled /api/cron/send-emails route remains the reliable
+    // fallback if this doesn't get to run for any reason.
+    after(() => drainEmailOutbox());
   }
   return result;
 }
@@ -59,6 +69,7 @@ export async function cancelReservationAction(input: {
     revalidatePath("/requests");
     revalidatePath("/admin/reservations");
     revalidatePath("/calendar");
+    after(() => drainEmailOutbox());
   }
   return result;
 }
@@ -81,6 +92,7 @@ export async function approveRequestAction(input: {
     revalidatePath("/admin/reservations");
     revalidatePath("/requests");
     revalidatePath("/calendar");
+    after(() => drainEmailOutbox());
   }
   return result;
 }
@@ -100,6 +112,7 @@ export async function rejectRequestAction(input: {
   if (result.ok) {
     revalidatePath("/admin/reservations");
     revalidatePath("/requests");
+    after(() => drainEmailOutbox());
   }
   return result;
 }
@@ -131,6 +144,7 @@ export async function createManualReservationAction(input: {
   if (result.ok) {
     revalidatePath("/admin/reservations");
     revalidatePath("/calendar");
+    after(() => drainEmailOutbox());
   }
   return result;
 }
@@ -169,6 +183,7 @@ export async function modifyReservationAction(input: {
     revalidatePath("/admin/reservations");
     revalidatePath("/requests");
     revalidatePath("/calendar");
+    after(() => drainEmailOutbox());
   }
   return result;
 }

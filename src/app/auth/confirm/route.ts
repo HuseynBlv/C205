@@ -1,6 +1,7 @@
 import { type EmailOtpType } from "@supabase/supabase-js";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextRequest, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { drainEmailOutbox } from "@/lib/email/worker";
 
 /**
  * Handles every email-link flow (signup confirmation, password recovery):
@@ -22,6 +23,12 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
     const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
     if (!error) {
+      // A confirmed signup queues an admin-notification email via the
+      // handle_auth_user_email_confirmed trigger — send it now rather
+      // than making USG wait out the cron interval to learn a new
+      // account needs authorizing. A password-recovery verifyOtp queues
+      // nothing, so this is a harmless no-op claim attempt in that case.
+      after(() => drainEmailOutbox());
       const response = NextResponse.redirect(new URL(next, origin));
       response.headers.set("Cache-Control", "private, no-store");
       return response;
