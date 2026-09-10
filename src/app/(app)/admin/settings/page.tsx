@@ -33,8 +33,8 @@ export default async function AdminSettingsPage() {
           <CardTitle className="text-base">Notification email</CardTitle>
           <CardDescription>
             Where USG receives an email every time a request is submitted.
-            Sending isn&apos;t wired up yet — this just controls where
-            future notifications will go.
+            Requesters are also emailed automatically when their request
+            is approved, rejected, cancelled, or modified.
           </CardDescription>
         </CardHeader>
         <CardContent>
