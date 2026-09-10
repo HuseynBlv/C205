@@ -167,12 +167,33 @@ Supabase's dashboard.
      `select set_email_worker_secret('<the same EMAIL_WORKER_SECRET value>');`
      against the **hosted Supabase project** once (SQL editor, or `psql`)
      — a different value from whatever your local `.env.local` uses.
-   - `vercel.json` already schedules `GET /api/cron/send-emails` every 5
-     minutes and Vercel supplies the `CRON_SECRET` header automatically —
-     check the Cron Jobs tab in your Vercel project after the first
-     deploy to confirm it registered. Deploying anywhere other than
-     Vercel instead needs your own scheduler sending
-     `Authorization: Bearer <CRON_SECRET>` to that route.
+   - **Trigger source, in order of how reliably each actually fires (all
+     three call the same idempotent route — running more than one is
+     harmless):**
+     1. **pg_cron, inside Supabase itself (primary)** — the most reliable
+        option, since it's a real Postgres-native scheduler rather than a
+        side feature of some other platform. Enabled by
+        `supabase/migrations/20260910130000_email_cron_extensions.sql`
+        (just `pg_cron`/`pg_net`, safe to commit); the actual scheduled
+        job is registered with a one-time manual command (kept out of
+        version control since it embeds `CRON_SECRET` directly — see
+        that migration's own comment for the exact command), run once via
+        `supabase db query --linked` against the hosted project.
+     2. **GitHub Actions** (`.github/workflows/send-emails-cron.yml`,
+        every 5 minutes) — free and unlimited on a public repo, but
+        GitHub explicitly documents scheduled workflows as best-effort,
+        not guaranteed; a live test on this project once went 40 minutes
+        without firing at all on a brand-new schedule. Left in place as
+        a free secondary layer, not the primary mechanism.
+     3. **`vercel.json`'s own cron** — capped at once daily on Vercel's
+        Hobby plan (`0 8 * * *`); Vercel Pro ($20/mo) would allow the
+        original every-5-minutes schedule directly, if pg_cron/GitHub
+        Actions ever need replacing. Left as a final guaranteed-daily
+        fallback regardless.
+   - Deploying anywhere other than Vercel needs its own scheduler (or
+     just rely on the pg_cron job above, which doesn't care what's
+     hosting the app) sending `Authorization: Bearer <CRON_SECRET>` to
+     `/api/cron/send-emails`.
 
 ## Scripts
 

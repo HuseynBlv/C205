@@ -1,0 +1,42 @@
+-- Runs the email-sending worker's trigger entirely inside Supabase's own
+-- Postgres, replacing reliance on GitHub Actions' scheduled-workflow
+-- trigger as the primary mechanism: GitHub explicitly documents scheduled
+-- workflows as best-effort, not guaranteed, and a live test found it went
+-- a full 40 minutes (8 missed */5 ticks) without firing even once on a
+-- brand-new schedule. pg_cron is a real, precise Postgres-native
+-- scheduler with none of that ambiguity.
+--
+-- This migration only enables the two extensions — both purely additive,
+-- no data/behavior change on their own. The actual scheduled job
+-- (cron.schedule(...)) is NOT created here, because doing so would
+-- require embedding the literal CRON_SECRET value into this file's
+-- committed SQL text (pg_cron has no env(...)-style secret indirection
+-- the way supabase/config.toml's [auth.email.smtp] does). Instead, run
+-- the one-time registration command below directly against the hosted
+-- project (`supabase db query --linked`), the same manual-but-documented
+-- pattern already used for set_email_worker_secret():
+--
+--   select cron.schedule(
+--     'send-queued-emails',
+--     '*/5 * * * *',
+--     $$
+--     select net.http_get(
+--       url := 'https://c205.usg.az/api/cron/send-emails',
+--       headers := jsonb_build_object('Authorization', 'Bearer <CRON_SECRET value>')
+--     );
+--     $$
+--   );
+--
+-- The stored command text (including the secret) is only ever readable
+-- via cron.job, which — like every other schema here — grants nothing to
+-- anon/authenticated; only a superuser-level connection (the same trust
+-- level already required to read app_settings.email_worker_secret
+-- directly) can see it.
+--
+-- GitHub Actions' and Vercel's own daily cron are both left in place as
+-- redundant fallback triggers — draining the same queue from more than
+-- one trigger is harmless (claim_pending_emails uses FOR UPDATE SKIP
+-- LOCKED), so there's no reason to remove either now that a third,
+-- more reliable layer exists.
+create extension if not exists pg_cron with schema extensions;
+create extension if not exists pg_net with schema extensions;
