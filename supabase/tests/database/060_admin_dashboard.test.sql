@@ -4,7 +4,7 @@
 -- audit trail.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(18);
+select plan(24);
 
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
 values
@@ -173,6 +173,52 @@ select is(
 select ok(
   (select count(*) from public.audit_events) > 0,
   'an admin can read the audit trail'
+);
+
+-- ---- remove_availability_windows_in_range (bulk removal) -----------------
+select public.publish_availability_window(:'room_id'::uuid, now() + interval '300 days', now() + interval '300 days 2 hours', 'bulk 1');
+select public.publish_availability_window(:'room_id'::uuid, now() + interval '302 days', now() + interval '302 days 2 hours', 'bulk 2');
+select public.publish_availability_window(:'room_id'::uuid, now() + interval '304 days', now() + interval '304 days 2 hours', 'bulk 3');
+select public.publish_availability_window(:'room_id'::uuid, now() + interval '320 days', now() + interval '320 days 2 hours', 'outside range, must survive');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000b2","role":"authenticated"}';
+
+select throws_ok(
+  format($$ select public.remove_availability_windows_in_range(%L::uuid, now() + interval '299 days', now() + interval '310 days') $$, :'room_id'),
+  '42501'::char(5), NULL,
+  'a non-admin cannot bulk-remove availability windows'
+);
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000b1","role":"authenticated"}';
+
+select throws_ok(
+  format($$ select public.remove_availability_windows_in_range(%L::uuid, now() + interval '310 days', now() + interval '299 days') $$, :'room_id'),
+  '22023'::char(5), NULL,
+  'remove_availability_windows_in_range rejects range_end at or before range_start'
+);
+
+select is(
+  (select public.remove_availability_windows_in_range(:'room_id'::uuid, now() + interval '299 days', now() + interval '310 days')),
+  3,
+  'bulk removal deletes exactly the windows overlapping the given range'
+);
+
+select is(
+  (select count(*)::int from public.availability_windows where room_id = :'room_id'::uuid and starts_at between now() + interval '299 days' and now() + interval '310 days'),
+  0,
+  'no windows remain inside the removed range'
+);
+
+select ok(
+  (select count(*) from public.availability_windows where room_id = :'room_id'::uuid and label = 'outside range, must survive') = 1,
+  'a window outside the range is untouched by the bulk removal'
+);
+
+select ok(
+  (select count(*) from public.audit_events where action = 'AVAILABILITY_RANGE_REMOVED' and (before_value->>'count')::int = 3) = 1,
+  'the bulk removal writes exactly one summary audit event with the correct count'
 );
 
 reset role;

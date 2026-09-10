@@ -17,6 +17,7 @@ import {
   PublishAvailabilityForm,
 } from "@/app/(app)/admin/availability/availability-forms";
 import { MonthlyPublishForm } from "@/app/(app)/admin/availability/monthly-publish-form";
+import { RemoveRangeDialog } from "@/app/(app)/admin/availability/remove-range-dialog";
 import { EditWindowDialog } from "@/app/(app)/admin/availability/edit-window-dialog";
 import { EditBlockDialog } from "@/app/(app)/admin/availability/edit-block-dialog";
 import { RemoveButton } from "@/app/(app)/admin/availability/remove-button";
@@ -81,6 +82,7 @@ async function RealAvailability({ roomId }: { roomId: string }) {
       <div className="space-y-4">
         <PublishAvailabilityForm roomId={roomId} />
         <CreateBlockForm roomId={roomId} />
+        <RemoveRangeDialog roomId={roomId} />
       </div>
 
       {windowRows.length === 0 && blockRows.length === 0 ? (

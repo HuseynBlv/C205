@@ -873,6 +873,10 @@ export type Database = {
         Args: { p_window_id: string }
         Returns: undefined
       }
+      remove_availability_windows_in_range: {
+        Args: { p_range_end: string; p_range_start: string; p_room_id: string }
+        Returns: number
+      }
       remove_blocked_interval: {
         Args: { p_block_id: string }
         Returns: undefined

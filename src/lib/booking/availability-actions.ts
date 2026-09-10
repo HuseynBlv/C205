@@ -127,6 +127,45 @@ export async function publishAvailabilityMonthAction(input: {
   return { ok: true, count: data?.length ?? 0 };
 }
 
+/** How many published windows overlap a proposed bulk-removal range —
+ * read directly, no RPC needed: availability_windows already grants
+ * plain SELECT to authenticated (availability_windows_select_active),
+ * same reasoning previewAvailabilityImpactAction below already relies
+ * on for reservations. Shown before the admin confirms, so "remove
+ * everything in September" isn't a surprise about how much that
+ * actually is. */
+export async function countAvailabilityWindowsInRangeAction(input: {
+  roomId: string;
+  rangeStart: string;
+  rangeEnd: string;
+}): Promise<number> {
+  const supabase = await createClient();
+  const { count } = await supabase
+    .from("availability_windows")
+    .select("id", { count: "exact", head: true })
+    .eq("room_id", input.roomId)
+    .lt("starts_at", input.rangeEnd)
+    .gt("ends_at", input.rangeStart);
+  return count ?? 0;
+}
+
+export async function removeAvailabilityWindowsInRangeAction(input: {
+  roomId: string;
+  rangeStart: string;
+  rangeEnd: string;
+}): Promise<ActionResult & { count?: number }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("remove_availability_windows_in_range", {
+    p_room_id: input.roomId,
+    p_range_start: input.rangeStart,
+    p_range_end: input.rangeEnd,
+  });
+  if (error) return { ok: false, error: mapBookingError(error.message) };
+  revalidatePath("/admin/availability");
+  revalidatePath("/calendar");
+  return { ok: true, count: data ?? 0 };
+}
+
 export interface AffectedReservation {
   id: string;
   purpose: string;
