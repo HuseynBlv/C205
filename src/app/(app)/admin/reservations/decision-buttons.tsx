@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, X, XCircle } from "lucide-react";
+import { Archive, ArchiveRestore, CheckCircle2, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -18,8 +18,10 @@ import {
 } from "@/components/ui/dialog";
 import {
   approveRequestAction,
+  archiveReservationAction,
   cancelReservationAction,
   rejectRequestAction,
+  unarchiveReservationAction,
 } from "@/lib/booking/actions";
 
 /** A STALE_RESERVATION_VERSION error means whatever the admin was looking
@@ -270,5 +272,97 @@ export function AdminCancelButton({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Archiving only hides a decided reservation from the default admin
+ * view — it never deletes the row, and is always reversible via
+ * UnarchiveButton — so this skips a confirmation dialog entirely, unlike
+ * Reject/Cancel which both collect a reason. */
+export function ArchiveButton({
+  reservationId,
+  expectedVersion,
+  onSuccess,
+}: {
+  reservationId: string;
+  expectedVersion: number;
+  onSuccess?: () => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={isPending}
+        onClick={() => {
+          setError(null);
+          setStale(false);
+          startTransition(async () => {
+            const result = await archiveReservationAction({ reservationId, expectedVersion });
+            if (!result.ok) {
+              if (result.code === "STALE_RESERVATION_VERSION") setStale(true);
+              else setError(result.error);
+              return;
+            }
+            onSuccess?.();
+          });
+        }}
+      >
+        <Archive className="size-3.5" /> {isPending ? "Archiving…" : "Archive"}
+      </Button>
+      {stale ? (
+        <StaleVersionNotice />
+      ) : error ? (
+        <p className="max-w-48 text-right text-xs text-destructive">{error}</p>
+      ) : null}
+    </div>
+  );
+}
+
+export function UnarchiveButton({
+  reservationId,
+  expectedVersion,
+  onSuccess,
+}: {
+  reservationId: string;
+  expectedVersion: number;
+  onSuccess?: () => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={isPending}
+        onClick={() => {
+          setError(null);
+          setStale(false);
+          startTransition(async () => {
+            const result = await unarchiveReservationAction({ reservationId, expectedVersion });
+            if (!result.ok) {
+              if (result.code === "STALE_RESERVATION_VERSION") setStale(true);
+              else setError(result.error);
+              return;
+            }
+            onSuccess?.();
+          });
+        }}
+      >
+        <ArchiveRestore className="size-3.5" /> {isPending ? "Restoring…" : "Unarchive"}
+      </Button>
+      {stale ? (
+        <StaleVersionNotice />
+      ) : error ? (
+        <p className="max-w-48 text-right text-xs text-destructive">{error}</p>
+      ) : null}
+    </div>
   );
 }

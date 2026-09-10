@@ -15,7 +15,8 @@ import { getConflictWarnings } from "@/lib/booking/actions";
 import type { Reservation } from "@/lib/booking/actions";
 import { PendingQueue } from "@/app/(app)/admin/reservations/pending-queue";
 import { ManualBookingDialog } from "@/app/(app)/admin/reservations/manual-booking-dialog";
-import { AdminCancelButton } from "@/app/(app)/admin/reservations/decision-buttons";
+import { AdminCancelButton, ArchiveButton } from "@/app/(app)/admin/reservations/decision-buttons";
+import { ArchivedSection } from "@/app/(app)/admin/reservations/archived-section";
 import { ReservationDetailsSheet } from "@/components/admin/reservation-details-sheet";
 
 function formatRange(startsAt: string, endsAt: string) {
@@ -49,7 +50,8 @@ async function RealAdminReservations({ roomId }: { roomId: string | null }) {
   const rows = (data ?? []) as Reservation[];
 
   const pending = rows.filter((r) => r.status === "PENDING");
-  const decided = rows.filter((r) => r.status !== "PENDING");
+  const decided = rows.filter((r) => r.status !== "PENDING" && !r.archived_at);
+  const archived = rows.filter((r) => r.archived_at);
 
   const warningsById = Object.fromEntries(
     await Promise.all(
@@ -100,6 +102,7 @@ async function RealAdminReservations({ roomId }: { roomId: string | null }) {
                       {r.status === "APPROVED" ? (
                         <AdminCancelButton reservationId={r.id} expectedVersion={r.version} />
                       ) : null}
+                      <ArchiveButton reservationId={r.id} expectedVersion={r.version} />
                     </div>
                   </CardContent>
                 </Card>
@@ -109,6 +112,8 @@ async function RealAdminReservations({ roomId }: { roomId: string | null }) {
               ) : null}
             </div>
           </section>
+
+          <ArchivedSection reservations={archived} formatRange={formatRange} />
         </>
       )}
     </div>

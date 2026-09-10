@@ -343,6 +343,8 @@ export type Database = {
       reservations: {
         Row: {
           admin_override: boolean
+          archived_at: string | null
+          archived_by: string | null
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null
@@ -367,6 +369,8 @@ export type Database = {
         }
         Insert: {
           admin_override?: boolean
+          archived_at?: string | null
+          archived_by?: string | null
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
@@ -391,6 +395,8 @@ export type Database = {
         }
         Update: {
           admin_override?: boolean
+          archived_at?: string | null
+          archived_by?: string | null
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
@@ -414,6 +420,13 @@ export type Database = {
           version?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "reservations_archived_by_fkey"
+            columns: ["archived_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "reservations_cancelled_by_fkey"
             columns: ["cancelled_by"]
@@ -520,6 +533,43 @@ export type Database = {
         }
         Returns: {
           admin_override: boolean
+          archived_at: string | null
+          archived_by: string | null
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          decision_reason: string | null
+          ends_at: string
+          id: string
+          override_reason: string | null
+          participant_count: number
+          purpose: string
+          requester_email: string
+          requester_id: string | null
+          requester_name: string
+          room_id: string
+          starts_at: string
+          status: Database["public"]["Enums"]["reservation_status"]
+          submitted_at: string
+          updated_at: string
+          version: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "reservations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      archive_reservation: {
+        Args: { p_expected_version: number; p_reservation_id: string }
+        Returns: {
+          admin_override: boolean
+          archived_at: string | null
+          archived_by: string | null
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null
@@ -577,6 +627,8 @@ export type Database = {
         }
         Returns: {
           admin_override: boolean
+          archived_at: string | null
+          archived_by: string | null
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null
@@ -667,6 +719,8 @@ export type Database = {
         }
         Returns: {
           admin_override: boolean
+          archived_at: string | null
+          archived_by: string | null
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null
@@ -700,6 +754,8 @@ export type Database = {
         Args: { p_id: string; p_secret: string }
         Returns: {
           admin_override: boolean
+          archived_at: string | null
+          archived_by: string | null
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null
@@ -752,6 +808,8 @@ export type Database = {
         }
         Returns: {
           admin_override: boolean
+          archived_at: string | null
+          archived_by: string | null
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null
@@ -840,6 +898,8 @@ export type Database = {
         }
         Returns: {
           admin_override: boolean
+          archived_at: string | null
+          archived_by: string | null
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null
@@ -985,6 +1045,43 @@ export type Database = {
         }
         Returns: {
           admin_override: boolean
+          archived_at: string | null
+          archived_by: string | null
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          decision_reason: string | null
+          ends_at: string
+          id: string
+          override_reason: string | null
+          participant_count: number
+          purpose: string
+          requester_email: string
+          requester_id: string | null
+          requester_name: string
+          room_id: string
+          starts_at: string
+          status: Database["public"]["Enums"]["reservation_status"]
+          submitted_at: string
+          updated_at: string
+          version: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "reservations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      unarchive_reservation: {
+        Args: { p_expected_version: number; p_reservation_id: string }
+        Returns: {
+          admin_override: boolean
+          archived_at: string | null
+          archived_by: string | null
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null

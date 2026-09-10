@@ -21,6 +21,7 @@ import { ModifyReservationDialog } from "@/app/(app)/admin/reservations/modify-r
 const WARNING_LABELS: Record<string, string> = {
   OUTSIDE_AVAILABILITY: "No longer fits published availability",
   RESERVATION_CONFLICT: "Now conflicts with an approved reservation",
+  EXTENDED_MEETING_BUFFER_REQUIRED: "Within an hour of another approved extended meeting",
 };
 
 function formatFull(iso: string) {

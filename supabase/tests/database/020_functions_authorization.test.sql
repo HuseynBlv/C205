@@ -1,7 +1,8 @@
 -- Booking-engine function tests: authentication, role/account-state
 -- checks, status-transition rules, and the availability/overlap/
 -- advance-notice guards inside submit_request / approve_request /
--- reject_request / cancel_reservation / create_manual_reservation /
+-- reject_request / cancel_reservation / archive_reservation /
+-- unarchive_reservation / create_manual_reservation /
 -- publish_availability_window / create_blocked_interval.
 --
 -- Deeper scenarios (exact time boundaries, idempotency, modify_reservation,
@@ -10,7 +11,7 @@
 -- role/JWT-claim simulation technique.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(22);
+select plan(32);
 
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
 values
@@ -245,6 +246,83 @@ set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000e1","
 select lives_ok(
   format($$ select public.cancel_reservation(%L::uuid, 2, 'room needed for something else') $$, :'target_reservation_id'),
   'an admin can cancel an APPROVED reservation'
+);
+
+-- ---- archive_reservation / unarchive_reservation ------------------------
+-- target_reservation_id is now CANCELLED at version 3 (1 -> approve -> 2
+-- -> cancel -> 3).
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000e3","role":"authenticated"}';
+
+select throws_ok(
+  format($$ select public.archive_reservation(%L::uuid, 3) $$, :'target_reservation_id'),
+  '42501'::char(5), NULL,
+  'a non-admin cannot archive a decision-history entry'
+);
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000e1","role":"authenticated"}';
+
+select throws_ok(
+  format($$ select public.archive_reservation(%L::uuid, 999) $$, :'target_reservation_id'),
+  '40001'::char(5), NULL,
+  'archive_reservation rejects a stale expected_version'
+);
+
+select throws_ok(
+  format($$ select public.archive_reservation(%L::uuid, 1) $$, :'stale_target_id'),
+  '22023'::char(5), NULL,
+  'archive_reservation refuses a reservation still awaiting a decision'
+);
+
+select lives_ok(
+  format($$ select public.archive_reservation(%L::uuid, 3) $$, :'target_reservation_id'),
+  'an admin can archive a decided (CANCELLED) reservation'
+);
+
+select ok(
+  (select archived_at is not null and archived_by = '00000000-0000-0000-0000-0000000000e1'
+   from public.reservations where id = :'target_reservation_id'::uuid),
+  'archiving records who archived it and when'
+);
+
+select throws_ok(
+  format($$ select public.archive_reservation(%L::uuid, 4) $$, :'target_reservation_id'),
+  '22023'::char(5), NULL,
+  'archive_reservation refuses to re-archive an already-archived reservation'
+);
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000e3","role":"authenticated"}';
+
+select throws_ok(
+  format($$ select public.unarchive_reservation(%L::uuid, 4) $$, :'target_reservation_id'),
+  '42501'::char(5), NULL,
+  'a non-admin cannot unarchive either'
+);
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000e1","role":"authenticated"}';
+
+select lives_ok(
+  format($$ select public.unarchive_reservation(%L::uuid, 4) $$, :'target_reservation_id'),
+  'an admin can unarchive a reservation'
+);
+
+select ok(
+  (select archived_at is null and archived_by is null
+   from public.reservations where id = :'target_reservation_id'::uuid),
+  'unarchiving clears both archived fields'
+);
+
+select throws_ok(
+  format($$ select public.unarchive_reservation(%L::uuid, 5) $$, :'target_reservation_id'),
+  '22023'::char(5), NULL,
+  'unarchive_reservation refuses a reservation that is not currently archived'
 );
 
 -- ---- create_manual_reservation: admin-only, atomic create+approve ------
