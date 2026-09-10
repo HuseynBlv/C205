@@ -148,8 +148,9 @@ Supabase's dashboard.
    app code, but keep it out of any client-reachable file if you do add a
    use for it later.
 7. Use `/admin-setup` (see above) to create the first administrator, then
-   `set_usg_notification_email()` to replace the seeded placeholder
-   address.
+   the "Notification emails" card on `/admin/settings` to replace the
+   seeded placeholder address — add every inbox that should receive
+   submission/account-authorization alerts, then remove the placeholder.
 8. Consider enabling a CAPTCHA (hCaptcha/Turnstile) on the auth forms and
    reviewing `auth.rate_limit` for your expected traffic — this step relies
    on Supabase Auth's default abuse protection, not anything custom.

@@ -9,7 +9,7 @@
 -- technique.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(21);
+select plan(33);
 
 -- ---- fixtures ---------------------------------------------------------
 -- c1, c2: will become admins (one at a time) to test last-admin protection.
@@ -18,6 +18,9 @@ select plan(21);
 --     suspend-with-existing-session subject).
 -- c5: verified but PENDING, used as the one who successfully bootstraps.
 -- c7: unverified, used to prove bootstrap refuses an unverified caller.
+-- c8: created unverified, confirmed later to prove a multi-recipient
+--     notification fan-out (kept separate from c7, which must stay
+--     unverified for its own, unrelated scenario below).
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
 values
   ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-0000000000c1', 'authenticated', 'authenticated', 'c1@c205.test', 'x', now(), '{}', '{}', now(), now()),
@@ -25,7 +28,8 @@ values
   ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-0000000000c3', 'authenticated', 'authenticated', 'c3@c205.test', 'x', null, '{}', '{}', now(), now()),
   ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-0000000000c4', 'authenticated', 'authenticated', 'c4@c205.test', 'x', now(), '{}', '{}', now(), now()),
   ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-0000000000c5', 'authenticated', 'authenticated', 'c5@c205.test', 'x', now(), '{}', '{}', now(), now()),
-  ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-0000000000c7', 'authenticated', 'authenticated', 'c7@c205.test', 'x', null, '{}', '{}', now(), now());
+  ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-0000000000c7', 'authenticated', 'authenticated', 'c7@c205.test', 'x', null, '{}', '{}', now(), now()),
+  ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-0000000000c8', 'authenticated', 'authenticated', 'c8@c205.test', 'x', null, '{}', '{}', now(), now());
 
 -- supabase/seed.sql's demo admin (admin@c205.local) is ACTIVE/ADMIN in any
 -- freshly reset database. Clear it so this file's "last active
@@ -88,7 +92,7 @@ select ok(
   exists (
     select 1 from public.email_outbox
     where template = 'account_registered_admin'
-      and to_email = (select usg_notification_email from public.app_settings where id = true)
+      and to_email in (select email from public.usg_notification_recipients)
       and body like '%c3@c205.test%'
   ),
   'confirming an email queues an admin notification naming the new account'
@@ -102,6 +106,103 @@ select is(
   1,
   'exactly one admin notification is queued per email confirmation, not a duplicate'
 );
+
+-- ---- usg_notification_recipients: add/remove, admin-only, validated ---
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000c4","role":"authenticated"}';
+
+select throws_ok(
+  $$ select public.add_usg_notification_recipient('second@usg.example.edu') $$,
+  '42501'::char(5), NULL,
+  'a non-admin cannot add a notification recipient'
+);
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000c1","role":"authenticated"}';
+
+select throws_ok(
+  $$ select public.add_usg_notification_recipient('not-an-email') $$,
+  '22023'::char(5), NULL,
+  'add_usg_notification_recipient rejects an invalid email address'
+);
+
+select lives_ok(
+  $$ select public.add_usg_notification_recipient('second@usg.example.edu') $$,
+  'an admin can add a second notification recipient'
+);
+
+select throws_ok(
+  $$ select public.add_usg_notification_recipient('second@usg.example.edu') $$,
+  '23505'::char(5), NULL,
+  'adding the same recipient twice is rejected, not silently duplicated'
+);
+
+select is(
+  (select count(*)::int from public.usg_notification_recipients),
+  2,
+  'exactly two recipients now exist'
+);
+
+reset role;
+-- Simulate clicking the confirmation link for a second, unrelated account.
+update auth.users set email_confirmed_at = now() where id = '00000000-0000-0000-0000-0000000000c8';
+
+select is(
+  (
+    select count(*)::int from public.email_outbox
+    where template = 'account_registered_admin' and body like '%c8@c205.test%'
+  ),
+  2,
+  'with two recipients configured, one email confirmation queues one notification per recipient'
+);
+
+select is(
+  (
+    select array_agg(to_email order by to_email) from public.email_outbox
+    where template = 'account_registered_admin' and body like '%c8@c205.test%'
+  ),
+  (select array_agg(email order by email) from public.usg_notification_recipients),
+  'the notification goes to exactly the configured recipients, no more and no fewer'
+);
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000c4","role":"authenticated"}';
+
+select throws_ok(
+  $$ select public.remove_usg_notification_recipient('second@usg.example.edu') $$,
+  '42501'::char(5), NULL,
+  'a non-admin cannot remove a notification recipient'
+);
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000c1","role":"authenticated"}';
+
+select throws_ok(
+  $$ select public.remove_usg_notification_recipient('nobody@usg.example.edu') $$,
+  'P0002'::char(5), NULL,
+  'removing an address that was never a recipient is rejected'
+);
+
+select lives_ok(
+  $$ select public.remove_usg_notification_recipient('second@usg.example.edu') $$,
+  'an admin can remove a notification recipient, leaving at least one behind'
+);
+
+select is(
+  (select count(*)::int from public.usg_notification_recipients),
+  1,
+  'exactly one recipient remains'
+);
+
+select throws_ok(
+  $$ select public.remove_usg_notification_recipient(email) from public.usg_notification_recipients $$,
+  '22023'::char(5), NULL,
+  'the last remaining notification recipient cannot be removed'
+);
+
+reset role;
 
 -- ---- last active administrator cannot be demoted or suspended ---------
 set local role authenticated;

@@ -54,19 +54,32 @@ export async function removeAccountAction(profileId: string) {
   return callAccountRpc("set_account_status", profileId, "REMOVED", "Removed by USG");
 }
 
-/** Server-side mirror of the same pattern set_usg_notification_email()
+/** Server-side mirror of the same pattern add_usg_notification_recipient()
  * itself enforces, so client-side feedback and the authoritative check
  * never drift apart. */
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-export async function updateUsgNotificationEmailAction(email: string): Promise<ActionResult> {
+export async function addUsgNotificationRecipientAction(email: string): Promise<ActionResult> {
   if (!EMAIL_PATTERN.test(email)) {
     return { ok: false, error: "Enter a valid email address." };
   }
   const supabase = await createClient();
-  const { error } = await supabase.rpc("set_usg_notification_email", { p_email: email });
+  const { error } = await supabase.rpc("add_usg_notification_recipient", { p_email: email });
   if (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: error.code === "23505" ? "That address is already a recipient." : error.message };
+  }
+  revalidatePath("/admin/settings");
+  return { ok: true };
+}
+
+export async function removeUsgNotificationRecipientAction(email: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("remove_usg_notification_recipient", { p_email: email });
+  if (error) {
+    return {
+      ok: false,
+      error: error.code === "22023" ? "At least one notification recipient must remain." : error.message,
+    };
   }
   revalidatePath("/admin/settings");
   return { ok: true };

@@ -40,21 +40,18 @@ export type Database = {
           id: boolean
           updated_at: string
           updated_by: string | null
-          usg_notification_email: string
         }
         Insert: {
           email_worker_secret?: string | null
           id?: boolean
           updated_at?: string
           updated_by?: string | null
-          usg_notification_email: string
         }
         Update: {
           email_worker_secret?: string | null
           id?: boolean
           updated_at?: string
           updated_by?: string | null
-          usg_notification_email?: string
         }
         Relationships: [
           {
@@ -484,6 +481,32 @@ export type Database = {
         }
         Relationships: []
       }
+      usg_notification_recipients: {
+        Row: {
+          added_at: string
+          added_by: string | null
+          email: string
+        }
+        Insert: {
+          added_at?: string
+          added_by?: string | null
+          email: string
+        }
+        Update: {
+          added_at?: string
+          added_by?: string | null
+          email?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "usg_notification_recipients_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       room_occupancy: {
@@ -523,6 +546,20 @@ export type Database = {
       _merge_adjacent_availability_windows: {
         Args: { p_room_id: string }
         Returns: undefined
+      }
+      add_usg_notification_recipient: {
+        Args: { p_email: string }
+        Returns: {
+          added_at: string
+          added_by: string | null
+          email: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "usg_notification_recipients"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       approve_request: {
         Args: {
@@ -976,6 +1013,10 @@ export type Database = {
         Args: { p_block_id: string }
         Returns: undefined
       }
+      remove_usg_notification_recipient: {
+        Args: { p_email: string }
+        Returns: undefined
+      }
       reservation_conflict_warnings: {
         Args: { p_reservation_id: string }
         Returns: string[]
@@ -1053,22 +1094,6 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "profiles"
-          isOneToOne: true
-          isSetofReturn: false
-        }
-      }
-      set_usg_notification_email: {
-        Args: { p_email: string }
-        Returns: {
-          email_worker_secret: string | null
-          id: boolean
-          updated_at: string
-          updated_by: string | null
-          usg_notification_email: string
-        }
-        SetofOptions: {
-          from: "*"
-          to: "app_settings"
           isOneToOne: true
           isSetofReturn: false
         }

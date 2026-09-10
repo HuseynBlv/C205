@@ -84,8 +84,13 @@ layer only, landed ahead of wiring it into the UI.
   `reservations` table.
 - `audit_events` — append-only (`BEFORE UPDATE/DELETE` triggers raise on
   any attempt), written only from inside the SECURITY DEFINER functions.
-- `app_settings` — single-row config (`usg_notification_email`), writable
-  only via `set_usg_notification_email()`, never by direct UPDATE.
+- `app_settings` — single-row config (`email_worker_secret`), writable
+  only via its own SECURITY DEFINER setter, never by direct UPDATE.
+- `usg_notification_recipients` — every address that gets USG's
+  admin-facing notifications (one row per recipient, any number of them),
+  writable only via `add_usg_notification_recipient()` /
+  `remove_usg_notification_recipient()`; the latter refuses to drop the
+  last remaining row.
 - `email_outbox` — durable notification queue; no client grant at all,
   reserved for a future sending worker using the service-role key.
 - `idempotency_keys` — scoped `(scope, key)` records so a retried
@@ -104,7 +109,7 @@ Supabase's normally-broad defaults. In summary:
 | Any authenticated account | Read/edit only their own `profiles` row (never `role`/`account_status` — not in the column grant) |
 | `PENDING`/`SUSPENDED`/`REJECTED`/`REMOVED` account | Their own profile row only — enough to explain their status, nothing else |
 | `ACTIVE` account | Read rooms/availability/blocks, read their own reservations in full, read everyone's via the anonymized `room_occupancy` view, call `submit_reservation`/`cancel_reservation` |
-| `ACTIVE` `ADMIN` | All of the above, plus read every reservation/profile, write availability/blocks/rooms directly, and call `decide_reservation`/`set_account_status`/`set_user_role`/`set_usg_notification_email` |
+| `ACTIVE` `ADMIN` | All of the above, plus read every reservation/profile, write availability/blocks/rooms directly, and call `decide_reservation`/`set_account_status`/`set_user_role`/`add_usg_notification_recipient`/`remove_usg_notification_recipient` |
 
 `audit_events`, `email_outbox`, and `idempotency_keys` have **no** policy
 and **no** grant for `anon`/`authenticated` at all — only the SECURITY
