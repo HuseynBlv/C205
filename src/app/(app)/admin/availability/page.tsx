@@ -68,7 +68,17 @@ async function RealAvailability({ roomId }: { roomId: string }) {
     <div className="space-y-6">
       <MonthlyPublishForm roomId={roomId} />
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      {/* Full width, stacked — not a side-by-side 2-column grid. Each form
+          below lays out three fields plus a submit button in one row past
+          the sm breakpoint (see availability-forms.tsx); at a real 2-up
+          layout, each form only ever had roughly half the page's width to
+          do that in, which was never enough room — the datetime inputs
+          and submit button were pushed past the visible page with no
+          horizontal scroll to reach them. Tailwind's responsive prefixes
+          react to the full viewport width, not this container's own
+          (rendered) width, so there's no breakpoint that could have fixed
+          this while keeping the two forms side by side. */}
+      <div className="space-y-4">
         <PublishAvailabilityForm roomId={roomId} />
         <CreateBlockForm roomId={roomId} />
       </div>

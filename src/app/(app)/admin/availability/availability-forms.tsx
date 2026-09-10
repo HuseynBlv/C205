@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { localDateTimeToUtcIso as toUtcIso } from "@/lib/booking/timezone";
 import {
   createBlockedIntervalAction,
@@ -21,7 +21,12 @@ export function PublishAvailabilityForm({ roomId }: { roomId: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Publish availability</CardTitle>
+        <CardTitle className="text-base">Publish a one-time window</CardTitle>
+        <CardDescription>
+          Open one specific date and time range outside your regular
+          monthly hours above — for a single extra opening, not a
+          recurring schedule.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form
@@ -96,6 +101,11 @@ export function CreateBlockForm({ roomId }: { roomId: string }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Block a time</CardTitle>
+        <CardDescription>
+          Close off a date and time even during otherwise-open hours —
+          for maintenance, a holiday, or a one-off closure. Existing
+          approved reservations are never cancelled by a block.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form
