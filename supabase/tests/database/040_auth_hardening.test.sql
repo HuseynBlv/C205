@@ -9,7 +9,7 @@
 -- technique.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(19);
+select plan(21);
 
 -- ---- fixtures ---------------------------------------------------------
 -- c1, c2: will become admins (one at a time) to test last-admin protection.
@@ -82,6 +82,26 @@ select is(
 );
 
 reset role;
+
+-- ---- verifying an email queues an admin notification -------------------
+select ok(
+  exists (
+    select 1 from public.email_outbox
+    where template = 'account_registered_admin'
+      and to_email = (select usg_notification_email from public.app_settings where id = true)
+      and body like '%c3@c205.test%'
+  ),
+  'confirming an email queues an admin notification naming the new account'
+);
+
+select is(
+  (
+    select count(*)::int from public.email_outbox
+    where template = 'account_registered_admin' and body like '%c3@c205.test%'
+  ),
+  1,
+  'exactly one admin notification is queued per email confirmation, not a duplicate'
+);
 
 -- ---- last active administrator cannot be demoted or suspended ---------
 set local role authenticated;

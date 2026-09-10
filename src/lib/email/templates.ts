@@ -139,6 +139,20 @@ export function renderReservationEmail(
   reservation: Reservation | null,
   fallback: { subject: string; text: string },
 ): EmailContent {
+  // Not reservation-shaped at all — no related_reservation_id exists for
+  // this template (see the migration that queues it), so this must be
+  // handled before the reservation-null fallback below, which is a
+  // generic (template-unaware) catch-all rather than a real rendering.
+  if (template === "account_registered_admin") {
+    const rows =
+      `<tr><td style="padding:8px 0;font-size:14px;line-height:1.6;color:${INK};">${escapeHtml(fallback.text)}</td></tr>` +
+      calloutRow("Review and authorize this account from the admin accounts page.");
+    return {
+      html: shell({ title: "New account awaiting authorization", bodyRows: rows }),
+      text: fallback.text,
+    };
+  }
+
   if (!reservation) {
     return {
       html: shell({ title: escapeHtml(fallback.subject), bodyRows: `<tr><td style="padding:8px 0;font-size:14px;color:${INK};">${escapeHtml(fallback.text)}</td></tr>` }),
