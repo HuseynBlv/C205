@@ -50,6 +50,27 @@ export async function signUpAction(input: {
   });
 
   if (error) {
+    // Logged server-side only — this previously discarded the real error
+    // entirely, turning every failure (a real outage, a misconfigured SMTP
+    // relay, a rate limit) into the same unhelpful generic message with no
+    // way to diagnose it afterward. Safe to log the raw error here since
+    // this never reaches the client.
+    console.error("signUpAction: supabase.auth.signUp failed", error);
+
+    // `over_email_send_rate_limit` (and the generic request-rate variant)
+    // are safe to reveal distinctly, unlike almost every other Auth error
+    // code: hitting a send-rate limit doesn't depend on whether this email
+    // already has an account, so surfacing it can't be used to enumerate
+    // emails the way e.g. "email_exists" would. Every other code — a real
+    // outage, a misconfigured SMTP relay, anything else — still falls
+    // through to the same generic message on purpose.
+    if (error.code === "over_email_send_rate_limit" || error.code === "over_request_rate_limit") {
+      return {
+        ok: false,
+        error: "Too many attempts for this email address recently. Please wait a few minutes and try again.",
+      };
+    }
+
     return { ok: false, error: "We couldn't create your account. Please try again." };
   }
 
