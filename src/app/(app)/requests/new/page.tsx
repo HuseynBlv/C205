@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ScrollText } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/page-header";
 import { RequestForm } from "@/components/requests/request-form";
 import { ROOM_NAME } from "@/lib/config";
@@ -45,6 +46,14 @@ export default async function NewRequestPage({
       <PageHeader
         title={`Request ${ROOM_NAME}`}
         description="Fill in the date, time, purpose, and participant count."
+        actions={
+          <Button asChild variant="outline">
+            <Link href="/rules">
+              <ScrollText aria-hidden="true" />
+              Rules
+            </Link>
+          </Button>
+        }
       />
       <RequestForm roomId={roomId} initialSelection={initialSelection} />
     </div>

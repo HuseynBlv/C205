@@ -58,6 +58,7 @@ export async function updateSession(request: NextRequest) {
   const requiresSession =
     pathname.startsWith("/calendar") ||
     pathname.startsWith("/requests") ||
+    pathname.startsWith("/rules") ||
     pathname.startsWith("/admin");
   // Every route that can read or write cookie-carried session state, even
   // ones a signed-out visitor may land on (login, password reset) — none of
