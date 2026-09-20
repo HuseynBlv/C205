@@ -18,6 +18,12 @@ export function SiteHeader({ isAuthenticated = false }: { isAuthenticated?: bool
           <BrandMark tone="dark" />
         </Link>
         <div className="flex items-center gap-1.5">
+          <Link
+            href="/rules"
+            className="rounded-md px-3 py-2 text-sm font-medium text-[#e6ebec] transition-colors hover:bg-white/10"
+          >
+            Rules
+          </Link>
           {isAuthenticated ? (
             <Button asChild size="sm" variant="secondary" className="bg-[#eef2f3] text-[#172e35] hover:bg-white">
               <Link href="/calendar">Go to calendar</Link>

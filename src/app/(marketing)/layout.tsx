@@ -27,6 +27,9 @@ export default async function MarketingLayout({ children }: { children: React.Re
             <Link href="/requests/new" className="hover:text-white">
               Request C205
             </Link>
+            <Link href="/rules" className="hover:text-white">
+              Rules
+            </Link>
             {!user ? (
               <Link href="/login" className="hover:text-white">
                 Sign in

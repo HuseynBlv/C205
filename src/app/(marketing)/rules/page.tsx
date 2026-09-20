@@ -1,5 +1,3 @@
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { ROOM_NAME } from "@/lib/config";
 
@@ -129,14 +127,7 @@ const sections: Section[] = [
 
 export default function RulesPage() {
   return (
-    <div className="mx-auto max-w-3xl">
-      <Link
-        href="/requests/new"
-        className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-3.5" aria-hidden="true" />
-        Back to request
-      </Link>
+    <div className="mx-auto max-w-3xl px-4 py-10 md:px-8">
       <PageHeader title={`Internal Rules for the Use of Room ${ROOM_NAME}`} />
 
       <p className="mb-8 text-sm leading-relaxed text-foreground">
